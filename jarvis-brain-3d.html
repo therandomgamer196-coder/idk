@@ -174,7 +174,7 @@
   #showui:hover { opacity: 1; color: var(--ink); }
   body.clean .top, body.clean .panel, body.clean .telemetry, body.clean #labels, body.clean #reticle, body.clean #tip { display: none !important; }
   body.backdrop .top, body.backdrop .panel, body.backdrop .telemetry, body.backdrop #labels, body.backdrop #reticle, body.backdrop #tip, body.backdrop #showui { display: none !important; }
-  body.backdrop #gl { cursor: default; }
+  body.backdrop #gl:not(.pointing) { cursor: default; }
 
   #gl-error { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 3; width: min(360px, calc(100% - 32px)); margin: 0; text-align: center; color: var(--ink-2); line-height: 1.6; }
 
@@ -203,7 +203,6 @@
     body.has-detail .telemetry { display: none; }
     .tag3d:not(.sel) { display: none; }
   }
-  @media (prefers-reduced-motion: reduce) { #reticle .spin { animation: none; } }
 </style>
 
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -294,7 +293,11 @@ if (BACKDROP) document.body.classList.add('backdrop');
 const DATA = JSON.parse(document.getElementById('brain-data').textContent);
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+// This page exists to move, so it animates even when the system asks for reduced motion (the Punch In
+// wallpaper makes the same call: honouring the flag froze it). The flag only softens the camera shake.
+const reduceMotion = false;
+const gentleMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+let dragonTrigger = null;   // set once the scene is built: dragonTrigger('roar' | 'fire')
 
 // Mineral pigments, as used for colour in ink painting; vermilion (the seal colour) marks Jarvis Core.
 const PALETTE = { 0: '#62b0e0', 1: '#ef6a4a', 2: '#9ad0c2', 3: '#e0607e', 4: '#f0c05a', 5: '#4fb07e', 6: '#7b86e0', 7: '#f0a0c0', 8: '#c98a52', 9: '#b096e6' };
@@ -476,7 +479,10 @@ document.querySelectorAll('[data-cine]').forEach(b => b.addEventListener('click'
   view.setCine(+b.dataset.cine);
 }));
 addEventListener('keydown', e => {
-  if (BACKDROP || /INPUT|TEXTAREA/.test(document.activeElement?.tagName)) return;
+  if (/INPUT|TEXTAREA/.test(document.activeElement?.tagName)) return;
+  if ((e.key === 'r' || e.key === 'R') && dragonTrigger) return dragonTrigger('roar');
+  if ((e.key === 'f' || e.key === 'F') && dragonTrigger) return dragonTrigger('fire');
+  if (BACKDROP) return;
   if (e.key === '/') { e.preventDefault(); setClean(false); q.focus(); }
   else if (e.key === 'Escape') back();
   else if (e.key === 'h' || e.key === 'H') setClean(!document.body.classList.contains('clean'));
@@ -1559,14 +1565,16 @@ async function start3D() {
   let down = null, pointer = null;
   canvas.addEventListener('pointerdown', e => { down = { x: e.clientX, y: e.clientY, t: performance.now() }; });
   canvas.addEventListener('pointerup', e => {
-    if (!down || BACKDROP) return;
+    if (!down) return;
     const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y), quick = performance.now() - down.t < 600;
     down = null;
-    if (moved > 6 || !quick || document.body.classList.contains('clean')) return;
-    const n = pickAt(e.clientX, e.clientY);
-    if (n) select(n); else back();
+    if (moved > 6 || !quick) return;
+    const n = BACKDROP || document.body.classList.contains('clean') ? null : pickAt(e.clientX, e.clientY);
+    if (n) select(n);
+    else if (overDragon(e.clientX, e.clientY)) dragonTrigger(dragon.n && dragon.kind === 'roar' ? 'fire' : 'roar');
+    else if (!BACKDROP) back();
   });
-  canvas.addEventListener('pointermove', e => { if (e.pointerType === 'mouse' && !BACKDROP) pointer = { x: e.clientX, y: e.clientY }; });
+  canvas.addEventListener('pointermove', e => { if (e.pointerType === 'mouse') pointer = { x: e.clientX, y: e.clientY }; });
   canvas.addEventListener('pointerleave', () => { pointer = null; });
 
   const labelsEl = $('#labels'), reticle = $('#reticle');
@@ -1610,7 +1618,7 @@ async function start3D() {
     let hov = null;
     if (pointer && !userDriving) hov = pickAt(pointer.x, pointer.y);
     ui.hover = hov;
-    canvas.classList.toggle('pointing', !!hov);
+    canvas.classList.toggle('pointing', !!hov || (!!pointer && dragon.t0 < 0 && overDragon(pointer.x, pointer.y)));
     if (hov) {
       tip.hidden = false;
       tip.innerHTML = `<b>${esc(hov.label)}</b><span>${esc(lobeById.get(hov.community).name)}</span>`;
@@ -1695,11 +1703,16 @@ async function start3D() {
     dragonMsgUntil = U.uTime.value + 2.6;
     clearTimeout(tickerTimer); tickerTimer = setTimeout(() => ticker.classList.add('fade'), 2600);
   }
+  function startScene(kind, t) { dragon.t0 = t; dragon.kind = kind; dragon.n++; dragon.fired = {}; }
+  dragonTrigger = kind => { if (dragon.t0 < 0) startScene(kind, U.uTime.value); };
+  // the head is clickable: it wakes him (roar, or fire if he roared last)
+  const headPx = {};
+  const overDragon = (x, y) => { paintToScreen(PAINT.head, headPx); return Math.hypot(x - headPx.x, y - headPx.y) < 110 * comp.s; };
   function endScene(t) { dragon.t0 = -1; dragon.next = t + (BACKDROP ? 5 + Math.random() * 4 : 8 + Math.random() * 8); }
   function updateDragon(t) {
     const S = { wake: 0, lit: 0, aura: 0, flash: 0, eye: 0, lunge: 0, fire: 0, len: 0, haze: 0, smoke: 0, charge: 0, scorch: 0 };
     roarShock = -1; shake = 0;
-    if (!reduceMotion && dragon.t0 < 0 && t > dragon.next) { dragon.t0 = t; dragon.kind = dragon.n++ === 0 ? 'roar' : Math.random() < 0.5 ? 'roar' : 'fire'; dragon.fired = {}; }
+    if (dragon.t0 < 0 && t > dragon.next) startScene(dragon.n === 0 ? 'roar' : Math.random() < 0.5 ? 'roar' : 'fire', t);
     if (dragon.t0 >= 0) {
       const k = t - dragon.t0;
       if (dragon.kind === 'roar') {
@@ -1710,7 +1723,7 @@ async function start3D() {
         S.eye = smooth(3.6, 5.0, k) * (1 - smooth(8.5, 10.5, k));
         S.lunge = k < 5.6 ? -0.3 * smooth(4.6, 5.6, k) : k < 5.95 ? -0.3 + 1.3 * smooth(5.6, 5.95, k) : Math.exp(-(k - 5.95) * 1.4);
         if (k >= 5.95 && k < 7.6) roarShock = k - 5.95;
-        shake = k >= 5.95 ? Math.exp(-(k - 5.95) * 2.2) : 0;
+        shake = k >= 5.95 ? Math.exp(-(k - 5.95) * 2.2) * (gentleMotion ? 0.35 : 1) : 0;
         S.flash = bell(k, 6.0, 0.22);
         if (k >= 5.95) once('r', () => {
           say('Roar');
@@ -1733,7 +1746,7 @@ async function start3D() {
         S.haze = S.fire;
         S.scorch = smooth(2.8, 3.6, k) * (1 - smooth(5.5, 9.5, k));
         S.smoke = smooth(4.8, 5.4, k) * (1 - smooth(6.5, 10.5, k));
-        shake = 0.3 * S.fire;
+        shake = 0.3 * S.fire * (gentleMotion ? 0.35 : 1);
         if (k >= 2.45) once('f', () => { say('Dragonfire'); EU.uT0.value = t; wind.kick = 0.6; });
         if (k > 11) endScene(t);
       }
@@ -1887,6 +1900,7 @@ async function start3D() {
     composer.render();
     camera.position.copy(savedPos);
     if (!BACKDROP && !document.body.classList.contains('clean')) overlay();
+    else canvas.classList.toggle('pointing', !!pointer && dragon.t0 < 0 && overDragon(pointer.x, pointer.y));
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
