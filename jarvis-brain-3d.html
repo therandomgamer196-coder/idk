@@ -731,7 +731,7 @@ async function start3D() {
   const U = {
     uTime: { value: 0 }, uScale: { value: 1 }, uRes: { value: new THREE.Vector2(1, 1) }, uPR: { value: 1 },
     uScreen: { value: new THREE.Vector2(1, 1) }, uScan: { value: -1e4 }, uFocus: { value: 1 }, uWidth: { value: 1.2 }, uMaxPt: { value: 64 },
-    uSeal: { value: lin('#ec5a3e') }, uHolo: { value: HOLO }, uFire: { value: 0 }, uFirePx: { value: new THREE.Vector2(-1e4, -1e4) },
+    uSeal: { value: lin('#ec5a3e') }, uHolo: { value: HOLO }, uFire: { value: 0 }, uReso: { value: 0 }, uFirePx: { value: new THREE.Vector2(-1e4, -1e4) },
   };
   const additive = { transparent: true, depthWrite: false, blending: THREE.AdditiveBlending };
   const screenVS = `vec4 toClip(vec2 px) { return vec4(px.x / uScreen.x * 2.0 - 1.0, 1.0 - px.y / uScreen.y * 2.0, 0.0, 1.0); }`;
@@ -740,6 +740,7 @@ async function start3D() {
     float vnoise(vec2 p) { vec2 i = floor(p), f = fract(p); vec2 u = f * f * (3.0 - 2.0 * f);
       return mix(mix(hash12(i), hash12(i + vec2(1.0, 0.0)), u.x), mix(hash12(i + vec2(0.0, 1.0)), hash12(i + vec2(1.0, 1.0)), u.x), u.y); }
     float fbm(vec2 p) { float s = 0.0, a = 0.5; for (int i = 0; i < 5; i++) { s += a * vnoise(p); p = p * 2.03 + vec2(17.1, 9.2); a *= 0.5; } return s; }
+    float fbm3(vec2 p) { float s = 0.0, a = 0.5; for (int i = 0; i < 3; i++) { s += a * vnoise(p); p = p * 2.03 + vec2(17.1, 9.2); a *= 0.5; } return s / 0.875; }
     float sq(float x) { return x * x; }`;
 
   // ---- Composition: the brain sits inside the yin-yang like the dragon's pearl ----
@@ -760,7 +761,8 @@ async function start3D() {
   const BG = {
     ...U, tPaint: { value: paintTex }, uPaintSize: { value: new THREE.Vector2(...PAINT.size) }, uOrigin: { value: new THREE.Vector2() }, uS: { value: 1 },
     uGain: { value: 0.8 }, uPool: { value: BACKDROP ? 0.12 : 0.3 }, uFocusPx: { value: new THREE.Vector2() }, uWind: { value: 0.3 }, uWindOff: { value: 0 },
-    uLunge: { value: 0 }, uEye: { value: 0 }, uFireLen: { value: 0 }, uSmoke: { value: 0 }, uShockT: { value: -1 }, uHaze: { value: 0 },
+    uLunge: { value: 0 }, uEye: { value: 0 }, uEyeCol: { value: new THREE.Vector3(1, 0.3, 0.06) }, uFireLen: { value: 0 }, uSmoke: { value: 0 }, uShockT: { value: -1 }, uHaze: { value: 0 },
+    uWake: { value: 0 }, uWakeLit: { value: 0 }, uAura: { value: 0 }, uFlash: { value: 0 }, uCharge: { value: 0 }, uScorch: { value: 0 }, uGust: { value: 0 },
     uM: { value: new THREE.Vector2(...PAINT.mouth) }, uD: { value: new THREE.Vector2(...PAINT.fireDir).normalize() }, uE: { value: new THREE.Vector2(...PAINT.eye) },
     uHc: { value: new THREE.Vector2(...PAINT.head) }, uFireL: { value: PAINT.fireLen }, uBody: { value: PAINT.body.map(p => new THREE.Vector2(...p)) },
   };
@@ -770,6 +772,7 @@ async function start3D() {
     fragmentShader: `
       uniform sampler2D tPaint; uniform vec2 uPaintSize, uScreen, uOrigin, uFocusPx, uM, uD, uE, uHc; uniform vec2 uBody[9];
       uniform float uS, uTime, uGain, uPool, uWind, uWindOff, uLunge, uEye, uFire, uFireLen, uSmoke, uShockT, uHaze, uFireL;
+      uniform float uWake, uWakeLit, uAura, uFlash, uCharge, uScorch, uGust; uniform vec3 uEyeCol;
       varying vec2 vUv;
       ${NOISE}
       vec3 paint(vec2 P) {
@@ -802,10 +805,10 @@ async function start3D() {
         float sway = sin(t * 0.9 + P.y * 0.012) * 0.6 + sin(t * 1.7 + P.x * 0.02) * 0.4;
         dP += vec2(sway, sway * 0.35) * (1.1 + uWind * 3.2) * (mUR * wUR * wUR + mLL * wLL * wLL);
         // the dragon's body undulates, a slow wave running from tail to head
-        { float best = 1e9, along = 0.0, acc = 0.0; vec2 nrm = vec2(0.0);
-          for (int i = 0; i < 8; i++) { vec2 a = uBody[i], ab = uBody[i + 1] - a; float L = length(ab); float h = clamp(dot(P - a, ab) / (L * L), 0.0, 1.0); float d = length(P - a - ab * h);
-            if (d < best) { best = d; along = acc + h * L; nrm = vec2(-ab.y, ab.x) / L; } acc += L; }
-          dP += nrm * sin(along * 0.018 + t * 0.9) * 2.4 * exp(-best * best / 3000.0); }
+        float best = 1e9, along = 0.0, acc = 0.0; vec2 nrm = vec2(0.0);
+        for (int i = 0; i < 8; i++) { vec2 a = uBody[i], ab = uBody[i + 1] - a; float L = length(ab); float h = clamp(dot(P - a, ab) / (L * L), 0.0, 1.0); float d = length(P - a - ab * h);
+          if (d < best) { best = d; along = acc + h * L; nrm = vec2(-ab.y, ab.x) / L; } acc += L; }
+        dP += nrm * sin(along * 0.018 + t * 0.9) * (2.4 + uAura * 2.0) * exp(-best * best / 3000.0);
         // roar: the head surges forward, a shockwave rolls out from the jaws
         vec2 hr = P - uHc;
         dP -= hr * uLunge * 0.085 * exp(-dot(hr, hr) / 6400.0);
@@ -828,7 +831,55 @@ async function start3D() {
         float fl2 = uFire * exp(-dot(rel, rel) / 52000.0);
         col += col * vec3(1.6, 0.62, 0.2) * (fl * 1.1 + fl2 * 1.0) + vec3(0.22, 0.07, 0.015) * (fl * 0.5 + fl2 * 0.25);
         vec2 er = P - uE; float e2 = dot(er, er);
-        col += vec3(1.0, 0.3, 0.06) * uEye * (exp(-e2 / 10.0) * 7.0 + exp(-e2 / 240.0) * 0.55);
+        col += uEyeCol * uEye * (exp(-e2 / 10.0) * 7.0 + exp(-e2 / 240.0) * 0.55);
+
+        // ---- dragon scenes ----
+        float lum = dot(col, vec3(0.3, 0.59, 0.11)) / max(uGain, 0.01);
+        float ink = smoothstep(0.13, 0.02, lum);
+        float bodyBand = exp(-best * best / 3600.0);
+        vec2 hd = P - uHc; float headM = exp(-dot(hd, hd) / 5600.0);
+        float bodyM = max(bodyBand, headM);
+        float sTail = headM > bodyBand ? 1.0 : 1.0 - along / acc;
+        // The light rides the painting's own brushwork: the edges of the ink strokes catch it, like scales.
+        float edge = 0.0;
+        if (uWakeLit + uAura + uCharge > 0.001) {
+          vec2 Q = P + dP; float e = 1.6;
+          float gx = dot(paint(Q + vec2(e, 0.0)) - paint(Q - vec2(e, 0.0)), vec3(0.3, 0.59, 0.11));
+          float gy = dot(paint(Q + vec2(0.0, e)) - paint(Q - vec2(0.0, e)), vec3(0.3, 0.59, 0.11));
+          edge = smoothstep(0.015, 0.09, length(vec2(gx, gy)));
+        }
+        if (uWakeLit > 0.001) {   // white light creeping up the scales, tail to head
+          float reached = smoothstep(uWake + 0.02, uWake - 0.06, sTail);
+          float front = exp(-sq((sTail - uWake) / 0.04)) * step(sTail, 1.02);
+          float ripple = 0.75 + 0.25 * sin(along * 0.12 - t * 5.0);
+          col += vec3(0.95, 0.97, 1.0) * bodyM * uWakeLit * (reached * (edge * 0.9 * ripple + ink * 0.07) + front * (0.22 + edge * 1.6));
+        }
+        if (uAura > 0.001) {      // a soft white aura streaming off the whole body
+          vec2 aq = vec2(P.x * 0.0065 + t * 0.08, P.y * 0.0065 + t * 0.42);     // rises like flame, continuous everywhere
+          float wisp = fbm3(aq * 1.6 + fbm3(P * 0.008 + t * 0.15) * 1.4);
+          float halo = exp(-best * best / 9000.0) + headM * 0.7;
+          float streams = smoothstep(0.48, 0.78, wisp) * smoothstep(160.0, 30.0, best);
+          col += vec3(0.9, 0.94, 1.0) * uAura * (halo * 0.16 + streams * 0.55 + edge * bodyM * 0.6);
+        }
+        col += vec3(1.0, 0.98, 0.95) * uFlash * (0.035 + 0.25 * headM + edge * bodyM * 0.8);
+        if (uCharge > 0.001) {    // fire building in the throat: the scales' edges glow from within
+          float neck = bodyBand * smoothstep(0.0, 25.0, along) * smoothstep(200.0, 120.0, along) + headM * 0.55;
+          float pulse = 0.6 + 0.4 * sin(t * 8.0 - along * 0.06);
+          col += vec3(1.0, 0.36, 0.07) * neck * uCharge * pulse * (edge * 1.3 + ink * 0.12);
+          col += col * vec3(1.3, 0.5, 0.15) * uCharge * exp(-dot(hd, hd) / 16000.0) * 0.6;
+        }
+        if (uScorch > 0.001) {    // the ink the fire touched keeps glowing, then cools
+          float sm = uScorch * smoothstep(0.32, 0.04, abs(vv + 0.08)) * smoothstep(-0.05, 0.15, uu) * smoothstep(1.5, 1.0, uu);
+          float emb = pow(vnoise(P * 0.2 + vec2(t * 0.3, 0.0)), 4.0);
+          col += vec3(1.0, 0.3, 0.05) * sm * ink * emb * 2.4;
+          col *= 1.0 - 0.2 * sm * (1.0 - ink);
+        }
+        if (uGust > 0.01) {       // wind made visible: faint brush-stroke streams
+          float yy = P.y + 70.0 * fbm(P * 0.0035 + vec2(t * 0.05, 0.0));
+          float lane = abs(fract(yy / 46.0) - 0.5) * 46.0;
+          float dash = smoothstep(0.55, 0.85, fbm(vec2(P.x * 0.006 + uWindOff * 0.02, floor(yy / 46.0) * 3.7)));
+          col += vec3(0.85, 0.82, 0.76) * smoothstep(1.4, 0.2, lane) * dash * uGust * 0.05;
+        }
 
         // dragon fire: a turbulent, buoyant jet
         if (uFire > 0.001 && uu > -0.06 && uu < 1.35 && abs(vv) < 0.55) {
@@ -896,24 +947,26 @@ async function start3D() {
     g.setIndex([0, 1, 2, 0, 2, 3]);
     const A = new THREE.InstancedBufferAttribute(new Float32Array(count * 4), 4), B = new THREE.InstancedBufferAttribute(new Float32Array(count * 4), 4);
     A.setUsage(THREE.DynamicDrawUsage); B.setUsage(THREE.DynamicDrawUsage);
-    g.setAttribute('iA', A); g.setAttribute('iB', B); g.instanceCount = count;
+    const C = new THREE.InstancedBufferAttribute(new Float32Array(count), 1); C.setUsage(THREE.DynamicDrawUsage);
+    g.setAttribute('iA', A); g.setAttribute('iB', B); g.setAttribute('iC', C); g.instanceCount = count;
     const m = new THREE.Mesh(g, new THREE.ShaderMaterial({
       uniforms: { ...U, tPetal: { value: petalTex } }, transparent: true, depthTest: false, depthWrite: false,
-      vertexShader: `uniform vec2 uScreen, uFirePx; uniform float uFire; attribute vec4 iA, iB; varying vec2 vUv; varying vec4 vB; varying float vWarm;
+      vertexShader: `uniform vec2 uScreen, uFirePx; uniform float uFire; attribute vec4 iA, iB; attribute float iC; varying vec2 vUv; varying vec4 vB; varying float vWarm, vBurn;
         ${screenVS}
         void main() { vec2 c = position.xy; c.x *= iB.x; float cr = cos(iA.w), sr = sin(iA.w);
-          c = vec2(c.x * cr - c.y * sr, c.x * sr + c.y * cr) * iA.z;
+          c = vec2(c.x * cr - c.y * sr, c.x * sr + c.y * cr) * iA.z * (1.0 - 0.45 * iC); vBurn = iC;
           gl_Position = iB.y <= 0.0 ? vec4(2.0, 2.0, 2.0, 1.0) : toClip(iA.xy + c);
           vUv = vec2(uv.x * 0.5 + iB.z * 0.5, uv.y); vB = iB;
           vec2 d = iA.xy - uFirePx; vWarm = uFire * exp(-dot(d, d) / 90000.0); }`,
-      fragmentShader: `uniform sampler2D tPetal; varying vec2 vUv; varying vec4 vB; varying float vWarm;
+      fragmentShader: `uniform sampler2D tPetal; varying vec2 vUv; varying vec4 vB; varying float vWarm, vBurn;
         void main() { vec4 tx = texture2D(tPetal, vUv, vB.w * 3.5);
           vec3 c = tx.rgb * (0.3 + 0.12 * abs(vB.x)) + vec3(1.0, 0.45, 0.12) * vWarm * 0.9;
-          gl_FragColor = vec4(c, tx.a * vB.y); }`,
+          c = mix(c, vec3(1.8, 0.55, 0.1) * (0.5 + tx.a), smoothstep(0.0, 0.25, vBurn));   // caught in the fire: flares, then burns away
+          gl_FragColor = vec4(c, tx.a * vB.y * (1.0 - smoothstep(0.45, 1.0, vBurn))); }`,
     }));
     m.frustumCulled = false; m.renderOrder = order;
     scene.add(m);
-    return { A, B, count, list: Array.from({ length: count }, () => ({ alive: false })) };
+    return { A, B, C, count, list: Array.from({ length: count }, () => ({ alive: false })) };
   }
   const petalsBack = petalLayer(small ? 60 : 110, -5), petalsFront = petalLayer(small ? 8 : 16, 20);
 
@@ -942,6 +995,30 @@ async function start3D() {
   }));
   embers.frustumCulled = false; embers.renderOrder = -4;
   scene.add(embers);
+  EU.uDur.value = 2.6;
+
+  // White motes lifting off the dragon as its aura drains away.
+  const MOTES = small ? 110 : 220, mSeed = new Float32Array(MOTES * 4), mR = mulberry(77);
+  for (let k = 0; k < MOTES * 4; k++) mSeed[k] = mR();
+  const mGeo = new THREE.BufferGeometry();
+  mGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MOTES * 3), 3));
+  mGeo.setAttribute('aSeed', new THREE.BufferAttribute(mSeed, 4));
+  const MU = { ...U, uT0: { value: -100 }, uO: BG.uOrigin, uSp: BG.uS, uBody: BG.uBody };
+  const motes = new THREE.Points(mGeo, new THREE.ShaderMaterial({ ...additive, depthTest: false, uniforms: MU,
+    vertexShader: `uniform float uTime, uT0, uSp, uPR; uniform vec2 uScreen, uO; uniform vec2 uBody[9]; attribute vec4 aSeed; varying float vA;
+      ${screenVS}
+      void main() { float te = uT0 + aSeed.x * 5.5, life = 1.6 + aSeed.y * 2.4, age = uTime - te;
+        if (age < 0.0 || age > life) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); gl_PointSize = 0.0; vA = 0.0; return; }
+        float f = aSeed.z * 8.0; int i = int(min(f, 7.0)); float h = fract(f);
+        vec2 a = uBody[i], b = uBody[i + 1], dir = normalize(b - a), nrm = vec2(-dir.y, dir.x);
+        vec2 p = mix(a, b, h) + nrm * (aSeed.w - 0.5) * 60.0;
+        p += vec2(sin(age * 1.7 + aSeed.x * 30.0) * 10.0, -28.0 * age - 9.0 * age * age) + nrm * (aSeed.w - 0.5) * 30.0 * age;
+        gl_Position = toClip(uO + p * uSp);
+        float u = age / life; vA = smoothstep(0.0, 0.15, u) * (1.0 - smoothstep(0.55, 1.0, u));
+        gl_PointSize = (1.4 + aSeed.y * 2.6) * uPR; }`,
+    fragmentShader: `varying float vA; void main() { float d = length(gl_PointCoord * 2.0 - 1.0); if (d > 1.0) discard; gl_FragColor = vec4(vec3(0.95, 0.97, 1.0) * vA * smoothstep(1.0, 0.0, d) * 2.4, 1.0); }` }));
+  motes.frustumCulled = false; motes.renderOrder = -3;
+  scene.add(motes);
 
   const DUST = small ? 60 : 130, dSeed = new Float32Array(DUST * 4), dR = mulberry(21);
   for (let k = 0; k < DUST * 4; k++) dSeed[k] = dR();
@@ -984,7 +1061,7 @@ async function start3D() {
         gl_Position = projectionMatrix * mv;
       }`,
     fragmentShader: `
-      uniform vec3 uHolo, uFireV; uniform float uScan, uFocus, uTime, uFireLight;
+      uniform vec3 uHolo, uFireV; uniform float uScan, uFocus, uTime, uFireLight, uReso;
       varying vec3 vN, vV, vW, vGlow; varying float vLine, vFade;
       float sq(float x) { return x * x; }
       void main() {
@@ -999,6 +1076,8 @@ async function start3D() {
         col += uHolo * scan * (0.45 + fres);
         col += vGlow * (0.07 + 0.95 * fres);
         col += vec3(1.0, 0.45, 0.12) * uFireLight * max(dot(N, uFireV), 0.0) * (0.15 + fres) * 0.9;
+        float sweepX = fract(uTime * 0.6) * 420.0 - 210.0;                        // resonance with the dragon's aura
+        col += uHolo * uReso * (0.1 + 0.35 * fres + 0.7 * exp(-sq((vW.x - sweepX) / 10.0)));
         gl_FragColor = vec4(col * flick * uFocus * vFade, 1.0);
       }`,
   });
@@ -1012,7 +1091,7 @@ async function start3D() {
   });
   const latticeMat = new THREE.ShaderMaterial({ ...additive, depthFunc: THREE.LessEqualDepth, uniforms: U,
     vertexShader: `varying float vY; void main() { vY = (modelMatrix * vec4(position, 1.0)).y; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
-    fragmentShader: `uniform vec3 uHolo; uniform float uFocus, uScan; varying float vY; void main() { float k = (vY - uScan) / 10.0; float s = exp(-k * k); gl_FragColor = vec4(uHolo * (0.05 + s * 0.3) * uFocus, 1.0); }` });
+    fragmentShader: `uniform vec3 uHolo; uniform float uFocus, uScan, uReso; varying float vY; void main() { float k = (vY - uScan) / 10.0; float s = exp(-k * k); gl_FragColor = vec4(uHolo * (0.05 + s * 0.3 + uReso * 0.12) * uFocus, 1.0); }` });
   const nodeDotMat = new THREE.ShaderMaterial({ ...additive, depthFunc: THREE.LessEqualDepth, uniforms: U,
     vertexShader: `uniform float uTime, uPR; varying float vA; void main() { vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * mv; gl_PointSize = 2.2 * uPR;
       vA = 0.25 + 0.25 * sin(uTime * 1.3 + position.x * 0.3 + position.y * 0.17); }`,
@@ -1396,7 +1475,7 @@ async function start3D() {
     return null;
   }
   const ticker = $('#thought');
-  let tickerTimer = 0;
+  let tickerTimer = 0, dragonMsgUntil = 0;
   function startThought(t) {
     let src, goalLobe;
     const others = id => lobes.filter(l => l.id !== id);
@@ -1417,6 +1496,7 @@ async function start3D() {
     thoughtCount++;
     $('#t-thoughts').textContent = thoughtCount;
     const from = lobeById.get(src.community);
+    if (U.uTime.value < dragonMsgUntil) return;
     ticker.classList.remove('fade');
     ticker.innerHTML = `<span class="k"><b>思</b>Thought</span><i style="--c:${from.color}"></i><span>${esc(from.name)}</span><span class="arr">→</span><i style="--c:${goalLobe.color}"></i><span>${esc(goalLobe.name)}</span><span class="via">· ${path.length} ${path.length === 1 ? 'hop' : 'hops'} via ${esc(path[0].to.label)}</span>`;
     clearTimeout(tickerTimer); tickerTimer = setTimeout(() => ticker.classList.add('fade'), 3200);
@@ -1561,13 +1641,14 @@ async function start3D() {
       vx: 0, vy: 4, depth: front ? 1.8 + Math.random() * 0.8 : 0.45 + Math.random() * 0.6,
       size: (front ? 36 + Math.random() * 28 : 12 + Math.random() * 12) * Math.max(0.7, comp.s),
       rot: Math.random() * 6.28, spin: (Math.random() - 0.5) * 1.6, flipPh: Math.random() * 6.28, flipSp: 1.2 + Math.random() * 2.2,
-      phase: Math.random() * 6.28, fall: 18 + Math.random() * 16, alpha: 0, tex: Math.random() < 0.18 ? 1 : 0, born: t,
+      phase: Math.random() * 6.28, fall: 18 + Math.random() * 16, alpha: 0, tex: Math.random() < 0.18 ? 1 : 0, born: t, burn: 0,
     });
     if (front) { p.x = Math.random() * innerWidth; p.y = -60; }
   }
   function updatePetals(layer, t, dt, front) {
-    const Aa = layer.A.array, Ba = layer.B.array, W = innerWidth, H = innerHeight;
+    const Aa = layer.A.array, Ba = layer.B.array, Ca = layer.C.array, W = innerWidth, H = innerHeight;
     const wx = -wind.now * 46, shockR = roarShock >= 0 ? roarShock * 520 * comp.s : -1, m = paintToScreen(PAINT.mouth, {});
+    const fireOn = U.uFire.value > 0.3, Dv = BG.uD.value, FL = PAINT.fireLen * comp.s * Math.max(0.05, BG.uFireLen.value);
     layer.list.forEach((p, i) => {
       if (p.alive) {
         const tx = wx * p.depth + Math.sin(t * 0.8 + p.phase) * 14 * p.depth;
@@ -1575,6 +1656,11 @@ async function start3D() {
         p.vx += (tx - p.vx) * Math.min(1, dt * 1.1);
         p.vy += (ty - p.vy) * Math.min(1, dt * 1.4);
         if (shockR > 0) { const dx = p.x - m.x, dy = p.y - m.y, d = Math.hypot(dx, dy) || 1; const w = Math.exp(-(((d - shockR) / 60) ** 2)); p.vx += dx / d * w * 2200 * dt; p.vy += dy / d * w * 1200 * dt; }
+        if (fireOn && !p.burn) {
+          const rx = p.x - m.x, ry = p.y - m.y, u = (rx * Dv.x + ry * Dv.y) / FL, v = (-rx * Dv.y + ry * Dv.x) / FL;
+          if (u > 0.02 && u < 1.0 && Math.abs(v + 0.09 * u * u) < 0.06 + 0.2 * u) p.burn = 0.001;
+        }
+        if (p.burn) { p.burn += dt * 1.3; p.vy -= 40 * dt; if (p.burn >= 1) p.alive = false; }
         p.x += p.vx * dt; p.y += p.vy * dt;
         p.rot += p.spin * dt * (1 + wind.now);
         p.alpha = Math.min(1, (t - p.born) / 1.2) * (front ? 0.55 : 0.92);
@@ -1582,8 +1668,9 @@ async function start3D() {
       }
       Aa.set(p.alive ? [p.x, p.y, p.size, p.rot] : [0, 0, 0, 0], i * 4);
       Ba.set(p.alive ? [Math.cos(t * p.flipSp + p.flipPh), p.alpha, p.tex, front ? 1 : 0] : [1, 0, 0, 0], i * 4);
+      Ca[i] = p.alive ? p.burn || 0 : 0;
     });
-    layer.A.needsUpdate = true; layer.B.needsUpdate = true;
+    layer.A.needsUpdate = true; layer.B.needsUpdate = true; layer.C.needsUpdate = true;
   }
 
   // start mid-fall so the air already carries petals when the page opens
@@ -1593,32 +1680,69 @@ async function start3D() {
     if (p) { p.x = Math.random() * innerWidth; p.y = Math.random() * innerHeight * 0.95; }
   }
 
-  // ---- The dragon: every so often it roars and breathes fire ----
-  const roar = { t0: -1, next: BACKDROP ? 3.5 : 9 + Math.random() * 4, kicked: false };
-  let roarShock = -1, shake = 0;
-  function updateRoar(t) {
-    let eye = 0, lunge = 0, fireA = 0, len = 0, smoke = 0, haze = 0;
+  // ---- The dragon: two scenes that take turns ----
+  // Roar: a white glow creeps up its scales from tail to head, flares into a flowing aura, it roars, and the energy drains away.
+  // Fire: an ember glow builds in its throat, it breathes fire (scorching the ink, igniting petals), then smoke and cinders.
+  const dragon = { t0: -1, kind: 'roar', n: 0, next: 3, fired: {} };   // the roar always opens, 3 s in
+  let roarShock = -1, shake = 0, resonance = 0, gyroAng = 0;
+  const bell = (x, c, w) => Math.exp(-(((x - c) / w) ** 2));
+  const EYE_WHITE = new THREE.Vector3(0.75, 0.95, 1.35), EYE_EMBER = new THREE.Vector3(1.0, 0.24, 0.04);   // icy for the roar, ember for fire
+  const once = (key, fn) => { if (!dragon.fired[key]) { dragon.fired[key] = true; fn(); } };
+  function say(text) {
+    if (BACKDROP) return;
+    ticker.classList.remove('fade');
+    ticker.innerHTML = `<span class="k"><b>龍</b>Dragon</span><span>${text}</span>`;
+    dragonMsgUntil = U.uTime.value + 2.6;
+    clearTimeout(tickerTimer); tickerTimer = setTimeout(() => ticker.classList.add('fade'), 2600);
+  }
+  function endScene(t) { dragon.t0 = -1; dragon.next = t + (BACKDROP ? 5 + Math.random() * 4 : 8 + Math.random() * 8); }
+  function updateDragon(t) {
+    const S = { wake: 0, lit: 0, aura: 0, flash: 0, eye: 0, lunge: 0, fire: 0, len: 0, haze: 0, smoke: 0, charge: 0, scorch: 0 };
     roarShock = -1; shake = 0;
-    if (!reduceMotion && roar.t0 < 0 && t > roar.next) { roar.t0 = t; roar.kicked = false; EU.uT0.value = t + 1.1; }
-    if (roar.t0 >= 0) {
-      const k = t - roar.t0;
-      eye = smooth(0, 0.9, k) * (1 - smooth(3.6, 5.2, k));
-      lunge = k < 0.9 ? -0.35 * smooth(0, 0.9, k) : k < 1.25 ? -0.35 + 1.35 * smooth(0.9, 1.25, k) : Math.exp(-(k - 1.25) * 1.6);
-      if (k >= 0.9 && k < 2.5) roarShock = k - 0.9;
-      shake = k >= 0.9 ? Math.exp(-(k - 0.9) * 2.4) : 0;
-      fireA = smooth(1.1, 1.3, k) * (1 - smooth(3.3, 3.9, k));
-      len = smooth(1.1, 1.55, k);
-      haze = fireA;
-      smoke = smooth(3.2, 3.8, k) * (1 - smooth(4.5, 8.5, k));
-      if (k > 0.9 && !roar.kicked) {
-        roar.kicked = true; wind.kick = 1.3;
-        if (!BACKDROP) for (let j = 0; j < 3; j++) setTimeout(() => startThought(U.uTime.value), j * 260);
-        for (let j = 0; j < 14; j++) spawnPetal(petalsBack, t, false);
+    if (!reduceMotion && dragon.t0 < 0 && t > dragon.next) { dragon.t0 = t; dragon.kind = dragon.n++ === 0 ? 'roar' : Math.random() < 0.5 ? 'roar' : 'fire'; dragon.fired = {}; }
+    if (dragon.t0 >= 0) {
+      const k = t - dragon.t0;
+      if (dragon.kind === 'roar') {
+        once('a', () => { say('Awakening'); MU.uT0.value = t + 4.3; });
+        S.wake = smooth(0, 4.8, k) * 1.1;
+        S.lit = smooth(0, 0.8, k) * (1 - smooth(8.5, 11.5, k));
+        S.aura = smooth(4.2, 5.6, k) * (1 - smooth(7.8, 10.8, k)) + 0.7 * bell(k, 6.1, 0.35);
+        S.eye = smooth(3.6, 5.0, k) * (1 - smooth(8.5, 10.5, k));
+        S.lunge = k < 5.6 ? -0.3 * smooth(4.6, 5.6, k) : k < 5.95 ? -0.3 + 1.3 * smooth(5.6, 5.95, k) : Math.exp(-(k - 5.95) * 1.4);
+        if (k >= 5.95 && k < 7.6) roarShock = k - 5.95;
+        shake = k >= 5.95 ? Math.exp(-(k - 5.95) * 2.2) : 0;
+        S.flash = bell(k, 6.0, 0.22);
+        if (k >= 5.95) once('r', () => {
+          say('Roar');
+          wind.kick = 1.5;
+          for (let j = 0; j < 14; j++) spawnPetal(petalsBack, t, false);
+          if (!BACKDROP) {
+            for (let j = 0; j < 3; j++) setTimeout(() => startThought(U.uTime.value), j * 240);
+            nodes.forEach(n => setTimeout(() => flashNode(n, U.uTime.value, 0.8), (n.x + 190) / 380 * 700));
+          }
+        });
+        if (k > 8.6) once('d', () => say('Energy dissipating'));
+        if (k > 12.5) endScene(t);
+      } else {
+        once('a', () => say('Drawing breath'));
+        S.charge = smooth(0, 2.4, k) * (1 - smooth(5.0, 6.8, k));
+        S.eye = smooth(0.4, 1.8, k) * (1 - smooth(5.5, 7.5, k));
+        S.lunge = k < 2.15 ? -0.25 * smooth(1.2, 2.15, k) : k < 2.45 ? -0.25 + 1.25 * smooth(2.15, 2.45, k) : 0.7 * Math.exp(-(k - 2.45) * 1.2);
+        S.fire = smooth(2.45, 2.65, k) * (1 - smooth(4.9, 5.5, k));
+        S.len = smooth(2.45, 2.9, k);
+        S.haze = S.fire;
+        S.scorch = smooth(2.8, 3.6, k) * (1 - smooth(5.5, 9.5, k));
+        S.smoke = smooth(4.8, 5.4, k) * (1 - smooth(6.5, 10.5, k));
+        shake = 0.3 * S.fire;
+        if (k >= 2.45) once('f', () => { say('Dragonfire'); EU.uT0.value = t; wind.kick = 0.6; });
+        if (k > 11) endScene(t);
       }
-      if (k > 9) { roar.t0 = -1; roar.next = t + (BACKDROP ? 12 + Math.random() * 6 : 26 + Math.random() * 20); }
     }
-    BG.uEye.value = eye; BG.uLunge.value = lunge; BG.uFireLen.value = len; BG.uSmoke.value = smoke; BG.uHaze.value = haze;
-    BG.uShockT.value = roarShock; U.uFire.value = fireA; SU.uFireLight.value = fireA;
+    BG.uWake.value = S.wake; BG.uWakeLit.value = S.lit; BG.uAura.value = S.aura; BG.uFlash.value = S.flash; BG.uCharge.value = S.charge; BG.uScorch.value = S.scorch;
+    BG.uEye.value = S.eye; BG.uEyeCol.value.copy(dragon.kind === 'roar' ? EYE_WHITE : EYE_EMBER);
+    BG.uLunge.value = S.lunge; BG.uFireLen.value = S.len; BG.uSmoke.value = S.smoke; BG.uHaze.value = S.haze; BG.uShockT.value = roarShock;
+    U.uFire.value = S.fire; SU.uFireLight.value = Math.max(S.fire, S.charge * 0.35);
+    resonance = S.aura; U.uReso.value = Math.min(1, S.aura);
   }
 
   // ---- Resolution: up to 2× supersampling (capped ~14 MP); AUTO steps down if frames run long ----
@@ -1671,7 +1795,8 @@ async function start3D() {
     }
 
     updateWind(t, dt);
-    updateRoar(t);
+    updateDragon(t);
+    BG.uGust.value = smooth(0.35, 0.9, wind.gust + wind.kick * 0.5);
 
     // painting placement: fixed composition, a touch of parallax as the camera orbits, shake on the roar
     const az = controls.getAzimuthalAngle(), pol = controls.getPolarAngle();
@@ -1747,7 +1872,8 @@ async function start3D() {
     film.quad.material.uniforms.uCine.value = cine;
     keyDir.set(-0.45, 0.75, 0.5).normalize().transformDirection(camera.matrixWorldInverse);
     fireDirV.set(0.1, 0.9, -0.4).normalize().transformDirection(camera.matrixWorldInverse);
-    gyro.rotation.y = t * 0.05;
+    gyroAng += dt * (0.05 + 1.1 * resonance);
+    gyro.rotation.y = gyroAng;
     gyroRings.forEach((g, i) => {
       g.holder.children[0].rotation.y = t * (i ? -0.12 : 0.09);
       const pa = g.packets.geometry.attributes.position.array;
