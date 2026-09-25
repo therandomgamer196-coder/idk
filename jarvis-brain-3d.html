@@ -1,0 +1,1020 @@
+<title>Jarvis Brain 3D</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&family=Michroma&display=swap">
+<style>
+  :root {
+    color-scheme: dark;
+    --void: #03060b;
+    --holo: #8be9ff;
+    --ink: #dcf4ff;
+    --ink-2: #a9c4d3;
+    --mute: #6a8798;
+    --amber: #ffb547;
+    --line: rgba(139, 233, 255, .13);
+    --line-2: rgba(139, 233, 255, .3);
+    --glass-2: rgba(139, 233, 255, .055);
+    --display: "Michroma", "Eurostile", "Microgramma", "Arial Black", sans-serif;
+    --body: "Geist", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --g: 16px;
+    --top: calc(env(safe-area-inset-top, 0px) + var(--g));
+    --bot: calc(env(safe-area-inset-bottom, 0px) + var(--g));
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; overflow: hidden; background: var(--void); color: var(--ink); font: 13.5px/1.5 var(--body); -webkit-font-smoothing: antialiased; }
+  button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
+  :focus-visible { outline: 1px solid var(--amber); outline-offset: 2px; }
+  ul { list-style: none; margin: 0; padding: 0; }
+
+  /* Stage */
+  #gl { position: fixed; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
+  #gl.dragging { cursor: grabbing; }
+  #gl.pointing { cursor: pointer; }
+  .vignette { position: fixed; inset: 0; pointer-events: none; z-index: 1;
+    background:
+      radial-gradient(ellipse 78% 72% at 50% 50%, transparent 52%, rgba(0, 2, 6, .72) 100%),
+      repeating-linear-gradient(0deg, rgba(139, 233, 255, .018) 0 1px, transparent 1px 3px); }
+  .frame i { position: fixed; width: 22px; height: 22px; border: 1px solid var(--line-2); pointer-events: none; z-index: 1; }
+  .frame i:nth-child(1) { top: calc(var(--top) - 8px); left: 8px; border-right: 0; border-bottom: 0; }
+  .frame i:nth-child(2) { top: calc(var(--top) - 8px); right: 8px; border-left: 0; border-bottom: 0; }
+  .frame i:nth-child(3) { bottom: calc(var(--bot) - 8px); left: 8px; border-right: 0; border-top: 0; }
+  .frame i:nth-child(4) { bottom: calc(var(--bot) - 8px); right: 8px; border-left: 0; border-top: 0; }
+
+  /* Floating labels, reticle, tooltip */
+  #labels { position: fixed; inset: 0; pointer-events: none; z-index: 2; overflow: hidden; }
+  .tag3d { position: absolute; left: 0; top: 0; display: flex; align-items: center; gap: 6px; white-space: nowrap;
+    font: 500 10px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--ink);
+    text-shadow: 0 0 3px #000, 0 0 8px #000, 0 0 14px rgba(0, 0, 0, .8); will-change: transform, opacity; }
+  .tag3d::before { content: ""; width: 12px; height: 1px; background: currentColor; opacity: .55; }
+  .tag3d.sel { color: var(--amber); font-size: 11px; }
+  #reticle { position: fixed; left: 0; top: 0; width: 80px; height: 80px; margin: -40px 0 0 -40px; pointer-events: none; z-index: 2; color: var(--amber); will-change: transform; }
+  #reticle svg { width: 100%; height: 100%; overflow: visible; }
+  #reticle .spin { transform-box: fill-box; transform-origin: center; animation: spin 7s linear infinite; }
+  #reticle .spin.rev { animation-duration: 11s; animation-direction: reverse; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #tip { position: fixed; left: 0; top: 0; z-index: 6; pointer-events: none; max-width: 260px; padding: 7px 10px;
+    background: rgba(4, 11, 19, .88); border: 1px solid var(--line-2); border-radius: 2px; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+  #tip b { display: block; font-weight: 500; font-size: 12.5px; line-height: 1.35; color: var(--ink); }
+  #tip span { display: block; margin-top: 3px; font: 10px/1.3 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--mute); }
+
+  /* Top bar */
+  .top { position: fixed; top: var(--top); left: var(--g); right: var(--g); z-index: 3; display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; pointer-events: none; padding-inline: 10px; }
+  .mark { font: 400 15px/1 var(--display); letter-spacing: .42em; color: var(--ink); text-shadow: 0 0 18px rgba(139, 233, 255, .5); margin: 6px 0 0; }
+  .sub { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px; font: 500 10.5px/1 var(--mono); letter-spacing: .2em; text-transform: uppercase; color: var(--mute); }
+  .sub b { font-weight: 500; color: var(--holo); }
+  .clock { text-align: right; font: 500 10.5px/1 var(--mono); letter-spacing: .2em; text-transform: uppercase; color: var(--mute); }
+  #clock-time { display: block; margin: 2px 0 8px; font-size: 18px; letter-spacing: .08em; color: var(--ink); font-variant-numeric: tabular-nums; }
+
+  /* Panels */
+  .panel { position: fixed; z-index: 4; border: 1px solid var(--line); border-radius: 3px;
+    background: linear-gradient(180deg, rgba(9, 22, 34, .74), rgba(4, 11, 19, .64));
+    backdrop-filter: blur(14px) saturate(140%); -webkit-backdrop-filter: blur(14px) saturate(140%);
+    box-shadow: 0 24px 60px -24px rgba(0, 0, 0, .85), inset 0 1px 0 rgba(139, 233, 255, .06); }
+  .panel::before, .panel::after { content: ""; position: absolute; width: 10px; height: 10px; border: 1px solid var(--holo); opacity: .7; pointer-events: none; }
+  .panel::before { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
+  .panel::after { bottom: -1px; right: -1px; border-left: 0; border-top: 0; }
+
+  #index { top: calc(var(--top) + 70px); left: var(--g); width: 276px; max-height: calc(100% - var(--top) - var(--bot) - 150px); display: flex; flex-direction: column; padding: 14px; }
+  .search { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 10px; flex: none;
+    border: 1px solid var(--line); border-radius: 2px; background: rgba(139, 233, 255, .035); transition: border-color .2s, box-shadow .2s; }
+  .search:focus-within { border-color: rgba(255, 181, 71, .55); box-shadow: 0 0 0 3px rgba(255, 181, 71, .08); }
+  .search svg { width: 14px; height: 14px; flex: none; color: var(--mute); }
+  .search input { flex: 1; min-width: 0; background: none; border: 0; outline: 0; color: var(--ink); font: 13px var(--body); }
+  .search input::placeholder { color: var(--mute); }
+  .search input::-webkit-search-cancel-button { display: none; }
+  kbd { font: 500 10px/1 var(--mono); color: var(--mute); border: 1px solid var(--line); border-radius: 2px; padding: 3px 6px; }
+  #results { margin-top: 6px; padding-bottom: 6px; border-bottom: 1px solid var(--line); flex: none; }
+  #results .empty { padding: 8px; color: var(--mute); font-size: 12.5px; }
+
+  .eyebrow { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 18px 0 8px;
+    font: 500 10px/1 var(--mono); letter-spacing: .22em; text-transform: uppercase; color: var(--mute); }
+  .eyebrow button { font: inherit; letter-spacing: .18em; color: var(--amber); }
+  .eyebrow button:hover { text-decoration: underline; }
+
+  #lobes { margin: 0 -6px; overflow: auto; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+  .lobe { width: 100%; display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; grid-template-areas: "dot name count" ". region count";
+    column-gap: 10px; align-items: center; padding: 8px 8px; border-radius: 2px; transition: background .2s, opacity .2s; }
+  .lobe .dot { grid-area: dot; justify-self: center; }
+  .lobe .n { grid-area: name; font-weight: 500; font-size: 13px; color: var(--ink); }
+  .lobe .r { grid-area: region; margin-top: 2px; font: 10px/1.3 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--mute); }
+  .lobe .k { grid-area: count; font: 500 11px var(--mono); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+  .lobe:hover { background: var(--glass-2); }
+  #lobes.isolating .lobe:not(.on) { opacity: .42; }
+  #lobes.isolating .lobe:not(.on):hover { opacity: .8; }
+  .lobe.on { background: color-mix(in srgb, var(--c) 12%, transparent); }
+  .lobe.on .dot { box-shadow: 0 0 0 3px color-mix(in srgb, var(--c) 28%, transparent), 0 0 12px var(--c); }
+
+  .dot { display: block; width: 7px; height: 7px; border-radius: 50%; background: var(--c, var(--holo)); box-shadow: 0 0 9px var(--c, var(--holo)); }
+
+  /* Shared list rows (results, synapses, lobe neurons) */
+  .row { width: 100%; display: grid; grid-template-columns: 8px minmax(0, 1fr); column-gap: 10px; row-gap: 2px; align-items: center; padding: 7px 8px; border-radius: 2px; transition: background .15s; }
+  .row > .dot { grid-column: 1; grid-row: 1; }
+  .row > :not(.dot) { grid-column: 2; }
+  .row .lbl { font-size: 13px; line-height: 1.35; color: var(--ink); }
+  .row .rel { font: 10px/1.35 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--mute); }
+  .row .sub2 { font-size: 12px; color: var(--mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row:hover, .row.active { background: var(--glass-2); }
+
+  /* Detail */
+  #detail { top: calc(var(--top) + 70px); right: var(--g); width: 344px; max-height: calc(100% - var(--top) - var(--bot) - 150px); overflow: auto; padding: 18px 18px 14px;
+    scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+  #close { position: absolute; top: 10px; right: 10px; width: 28px; height: 28px; display: grid; place-items: center; color: var(--mute); border-radius: 2px; }
+  #close:hover { color: var(--ink); background: var(--glass-2); }
+  #close svg { width: 12px; height: 12px; }
+  .d-back { display: inline-flex; margin-bottom: 12px; font: 500 10px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--amber); }
+  .d-back:hover { text-decoration: underline; }
+  .d-eyebrow { display: flex; align-items: center; gap: 8px; padding-right: 30px; font: 500 10px/1.4 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--mute); }
+  .d-eyebrow .dot { flex: none; }
+  .d-title { margin: 10px 0 0; font: 500 21px/1.25 var(--body); letter-spacing: -.01em; text-wrap: balance; color: var(--ink); }
+  .d-kind { display: inline-block; margin-top: 10px; padding: 5px 7px; font: 500 9.5px/1 var(--mono); letter-spacing: .2em; text-transform: uppercase; color: var(--holo); border: 1px solid var(--line-2); border-radius: 2px; }
+  .d-kind.hub { color: var(--amber); border-color: rgba(255, 181, 71, .5); }
+  .d-sum { margin: 14px 0 0; color: var(--ink-2); line-height: 1.6; }
+  .d-why { margin: 14px 0 0; padding: 10px 12px; color: var(--ink-2); background: rgba(139, 233, 255, .04); border: 1px solid var(--line); border-radius: 2px; line-height: 1.55; }
+  .d-why span { display: block; margin-bottom: 4px; font: 500 9.5px/1 var(--mono); letter-spacing: .2em; text-transform: uppercase; color: var(--holo); }
+  .d-meta { margin: 14px 0 0; font: 11px/1.5 var(--mono); color: var(--mute); overflow-wrap: anywhere; user-select: text; }
+  .d-open { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; font: 500 10.5px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--amber); text-decoration: none; }
+  .d-open:hover { text-decoration: underline; }
+  .d-list { display: grid; gap: 1px; margin: 0 -8px; }
+  .d-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; margin: 16px 0 0; background: var(--line); border: 1px solid var(--line); border-radius: 2px; overflow: hidden; }
+  .d-stats div { display: flex; flex-direction: column-reverse; gap: 6px; padding: 10px 12px; background: rgba(4, 11, 19, .7); }
+  .d-stats dt { font: 500 9.5px/1 var(--mono); letter-spacing: .2em; text-transform: uppercase; color: var(--mute); }
+  .d-stats dd { margin: 0; font: 400 18px/1 var(--mono); color: var(--ink); font-variant-numeric: tabular-nums; }
+
+  /* Telemetry */
+  .telemetry { position: fixed; left: var(--g); right: var(--g); bottom: var(--bot); z-index: 3; display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; padding-inline: 10px; pointer-events: none; }
+  .telemetry dl { display: flex; gap: 28px; margin: 0; }
+  .telemetry dl div { display: flex; flex-direction: column-reverse; gap: 7px; }
+  .telemetry dt { font: 500 9.5px/1 var(--mono); letter-spacing: .22em; text-transform: uppercase; color: var(--mute); }
+  .telemetry dd { margin: 0; font: 400 20px/1 var(--mono); color: var(--ink); font-variant-numeric: tabular-nums; }
+  .telemetry .right { display: grid; justify-items: end; gap: 9px; }
+  .key { display: flex; gap: 16px; font: 500 10px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--ink-2); }
+  .key span { display: inline-flex; align-items: center; gap: 8px; }
+  .key i { display: block; width: 20px; height: 1px; background: var(--holo); box-shadow: 0 0 6px var(--holo); }
+  .key i.dotted { background: repeating-linear-gradient(90deg, var(--holo) 0 3px, transparent 3px 6px); box-shadow: none; }
+  .hint { margin: 0; font: 500 10px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--mute); }
+
+  #gl-error { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 3; width: min(360px, calc(100% - 32px)); margin: 0; text-align: center; color: var(--ink-2); line-height: 1.6; }
+
+  @media (max-width: 720px) {
+    .mark { font-size: 13px; letter-spacing: .34em; }
+    .sub { font-size: 9.5px; letter-spacing: .16em; }
+    #clock-date { display: none; }
+    #clock-time { font-size: 15px; margin: 4px 0 0; }
+    #index { top: calc(var(--top) + 56px); left: var(--g); right: var(--g); width: auto; max-height: none; padding: 10px; }
+    #index .eyebrow { display: none; }
+    #lobes { display: flex; gap: 6px; margin: 10px 0 0; padding-bottom: 2px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+    #lobes li { flex: none; }
+    .lobe { width: auto; grid-template-columns: 8px auto auto; grid-template-areas: "dot name count"; padding: 6px 10px; border: 1px solid var(--line); }
+    .lobe .n { font-size: 12px; white-space: nowrap; }
+    .lobe .r { display: none; }
+    #detail { top: auto; left: var(--g); right: var(--g); bottom: var(--bot); width: auto; max-height: 50%; }
+    .telemetry dl { gap: 18px; }
+    .telemetry dd { font-size: 16px; }
+    .telemetry .right { display: none; }
+    body.has-detail .telemetry { display: none; }
+    .tag3d:not(.sel) { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #reticle .spin { animation: none; }
+  }
+</style>
+
+<canvas id="gl" aria-label="3D map of Jarvis's memory: 96 notes grouped into 10 brain lobes"></canvas>
+<div id="labels" aria-hidden="true"></div>
+<div id="reticle" aria-hidden="true" hidden>
+  <svg viewBox="-40 -40 80 80">
+    <g class="spin"><circle r="31" fill="none" stroke="currentColor" stroke-width="1" stroke-dasharray="3 5" vector-effect="non-scaling-stroke" opacity=".85"/></g>
+    <g class="spin rev"><path d="M -24.5 -7 A 25.5 25.5 0 0 1 -7 -24.5 M 24.5 7 A 25.5 25.5 0 0 1 7 24.5" fill="none" stroke="currentColor" stroke-width="1.5" vector-effect="non-scaling-stroke"/></g>
+    <path d="M0 -39V-34M0 39V34M-39 0H-34M39 0H34" stroke="currentColor" stroke-width="1" vector-effect="non-scaling-stroke"/>
+  </svg>
+</div>
+<div class="vignette" aria-hidden="true"></div>
+<div class="frame" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+
+<header class="top">
+  <div>
+    <h1 class="mark">J.A.R.V.I.S.</h1>
+    <div class="sub"><span>Neural map</span><span aria-hidden="true">/</span><b>Kaydens Vault</b></div>
+  </div>
+  <div class="clock" aria-hidden="true"><span id="clock-time">--:--:--</span><span id="clock-date"></span></div>
+</header>
+
+<aside id="index" class="panel" aria-label="Lobes and search">
+  <label class="search" for="q">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="7" cy="7" r="5"/><path d="m11 11 3.5 3.5"/></svg>
+    <input id="q" type="search" placeholder="Search neurons" autocomplete="off" spellcheck="false" aria-controls="results">
+    <kbd aria-hidden="true">/</kbd>
+  </label>
+  <ul id="results" hidden></ul>
+  <div class="eyebrow"><span>Lobes</span><button id="all" type="button" hidden>Show all</button></div>
+  <ul id="lobes"></ul>
+</aside>
+
+<aside id="detail" class="panel" aria-live="polite" hidden>
+  <button id="close" type="button" aria-label="Close panel"><svg viewBox="0 0 12 12" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M1 1l10 10M11 1 1 11"/></svg></button>
+  <div id="detail-body"></div>
+</aside>
+
+<footer class="telemetry">
+  <dl>
+    <div><dt>Neurons</dt><dd id="t-nodes">0</dd></div>
+    <div><dt>Synapses</dt><dd id="t-links">0</dd></div>
+    <div><dt>Inferred</dt><dd id="t-inf">0</dd></div>
+    <div><dt>Lobes</dt><dd id="t-lobes">0</dd></div>
+  </dl>
+  <div class="right">
+    <div class="key"><span><i></i>Linked in notes</span><span><i class="dotted"></i>Inferred</span></div>
+    <p class="hint">Drag to orbit · Scroll to zoom · Click a neuron</p>
+  </div>
+</footer>
+<div id="tip" hidden></div>
+<p id="gl-error" hidden>The 3D view needs WebGL, which this browser has turned off or doesn't support. Search and the lobe list still work.</p>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.min.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+} }
+</script>
+<script id="brain-data" type="application/json">{"nodes":[{"id":"brain_core_brain_functions_main_information_directory_setup_ps1","label":"setup.ps1 install","community":0,"lobe":"Future Integrations & Research","region":"Left frontal lobe","color":"#c084fc","hub":false,"deg":2,"summary":"One-time install script that sets up the venv and downloads openWakeWord models including 'hey jarvis'.","why":"","source":"brain/Core Brain Functions/Main information directory.md","file":"Brain Map/Neurons/setup.ps1 install"},{"id":"brain_core_brain_functions_recommended_next_integrations_home_assistant_integration","label":"Home Assistant integration","community":0,"lobe":"Future Integrations & Research","region":"Left frontal lobe","color":"#c084fc","hub":false,"deg":2,"summary":"Planned local device scenes and state verification.","why":"","source":"brain/Core Brain Functions/Recommended next integrations.md","file":"Brain Map/Neurons/Home Assistant integration"},{"id":"brain_core_brain_functions_recommended_next_integrations_local_audit_timeline","label":"Local audit timeline","community":0,"lobe":"Future Integrations & Research","region":"Left frontal lobe","color":"#c084fc","hub":false,"deg":2,"summary":"Planned timeline of redacted command metadata.","why":"","source":"brain/Core Brain Functions/Recommended next integrations.md","file":"Brain Map/Neurons/Local audit timeline"},{"id":"brain_core_brain_functions_recommended_next_integrations_microsoft_graph_integration","label":"Microsoft Graph calendar/mail integration","community":0,"lobe":"Future Integrations & Research","region":"Left frontal lobe","color":"#c084fc","hub":false,"deg":3,"summary":"Planned read-only calendar/mail access, then drafts with confirmation.","why":"","source":"brain/Core Brain Functions/Recommended next integrations.md","file":"Brain Map/Neurons/Microsoft Graph calendar-mail integration"},{"id":"brain_core_brain_functions_recommended_next_integrations_push_to_talk_hotkey","label":"Push-to-talk hotkey","community":0,"lobe":"Future Integrations & Research","region":"Left frontal lobe","color":"#c084fc","hub":false,"deg":2,"summary":"Planned reliable privacy fallback for voice activation.","why":"","source":"brain/Core Brain Functions/Recommended next integrations.md","file":"Brain Map/Neurons/Push-to-talk hotkey"},{"id":"brain_core_brain_functions_recommended_next_integrations_windows_notifications","label":"Native Windows notifications","community":0,"lobe":"Future Integrations & Research","region":"Left frontal lobe","color":"#c084fc","hub":false,"deg":2,"summary":"Planned reminders and actionable alerts.","why":"","source":"brain/Core Brain Functions/Recommended next integrations.md","file":"Brain Map/Neurons/Native Windows notifications"},{"id":"brain_core_brain_functions_voice_and_privacy_hey_jarvis_wake_word","label":"Hey Jarvis wake word","community":0,"lobe":"Future Integrations & Research","region":"Left frontal lobe","color":"#c084fc","hub":false,"deg":3,"summary":"Wake phrase detected locally with openWakeWord using VAD 0.2 and wake score 0.35 thresholds; audio never sent to the cloud.","why":"","source":"brain/Core Brain Functions/Voice and privacy.md","file":"Brain Map/Neurons/Hey Jarvis wake word"},{"id":"brain_core_brain_functions_recommended_next_integrations","label":"Recommended next integrations","community":0,"lobe":"Future Integrations & Research","region":"Left frontal lobe","color":"#ffffff","hub":true,"deg":6,"summary":"Roadmap of five future Jarvis integrations, from read-only Microsoft Graph to native Windows notifications.","why":"","source":"brain/Core Brain Functions/Recommended next integrations.md","file":"brain/Core Brain Functions/Recommended next integrations"},{"id":"brain_core_brain_functions_research_references","label":"Research references","community":0,"lobe":"Future Integrations & Research","region":"Left frontal lobe","color":"#ffffff","hub":true,"deg":7,"summary":"Background reading links for Jarvis: Home Assistant voice, openWakeWord, Microsoft Graph, UI Automation, Windows notifications, OWASP prompt injection.","why":"","source":"brain/Core Brain Functions/Research references.md","file":"brain/Core Brain Functions/Research references"},{"id":"brain_core_brain_functions_research_references_home_assistant_voice_docs","label":"Home Assistant Assist Satellite and local voice docs","community":0,"lobe":"Future Integrations & Research","region":"Left frontal lobe","color":"#c084fc","hub":false,"deg":2,"summary":"Reference docs for Home Assistant local voice assistant.","why":"","source":"brain/Core Brain Functions/Research references.md","file":"Brain Map/Neurons/Home Assistant Assist Satellite and local voice docs"},{"id":"brain_core_brain_functions_research_references_ms_graph_docs","label":"Microsoft Graph calendar and mail docs","community":0,"lobe":"Future Integrations & Research","region":"Left frontal lobe","color":"#c084fc","hub":false,"deg":2,"summary":"Reference docs for Graph calendar and mail APIs.","why":"","source":"brain/Core Brain Functions/Research references.md","file":"Brain Map/Neurons/Microsoft Graph calendar and mail docs"},{"id":"brain_core_brain_functions_research_references_ms_ui_automation_docs","label":"Microsoft UI Automation docs","community":0,"lobe":"Future Integrations & Research","region":"Left frontal lobe","color":"#c084fc","hub":false,"deg":2,"summary":"Reference docs for Windows UI Automation.","why":"","source":"brain/Core Brain Functions/Research references.md","file":"Brain Map/Neurons/Microsoft UI Automation docs"},{"id":"brain_core_brain_functions_research_references_openwakeword","label":"openWakeWord","community":0,"lobe":"Future Integrations & Research","region":"Left frontal lobe","color":"#c084fc","hub":false,"deg":3,"summary":"Open-source wake-word library (dscripka/openWakeWord) used for 'hey jarvis' detection.","why":"","source":"brain/Core Brain Functions/Research references.md","file":"Brain Map/Neurons/openWakeWord"},{"id":"brain_core_brain_functions_research_references_windows_app_notifications_docs","label":"Windows app notifications docs","community":0,"lobe":"Future Integrations & Research","region":"Left frontal lobe","color":"#c084fc","hub":false,"deg":2,"summary":"Reference docs for Windows app notifications.","why":"","source":"brain/Core Brain Functions/Research references.md","file":"Brain Map/Neurons/Windows app notifications docs"},{"id":"brain_core_brain_functions_safety_rules_explicit_confirmation","label":"Explicit confirmation for risky tools","community":0,"lobe":"Future Integrations & Research","region":"Left frontal lobe","color":"#c084fc","hub":false,"deg":3,"summary":"Future mail, calendar-mutation, trading or desktop-control tools need an explicit confirmation parameter and step.","why":"","source":"brain/Core Brain Functions/Safety rules.md","file":"Brain Map/Neurons/Explicit confirmation for risky tools"},{"id":"brain_core_brain_functions_dashboard_context_command_centre_interface","label":"Command-centre interface","community":1,"lobe":"Jarvis Core System","region":"Left parietal lobe","color":"#ff7a18","hub":false,"deg":2,"summary":"Full-screen local UI at 127.0.0.1:8765 mirroring the orb and panels; ?screensaver=1 enables screensaver mode.","why":"","source":"brain/Core Brain Functions/Dashboard context.md","file":"Brain Map/Neurons/Command-centre interface"},{"id":"brain_core_brain_functions_dashboard_context_dashboard_context_post","label":"POST /dashboard-context","community":1,"lobe":"Jarvis Core System","region":"Left parietal lobe","color":"#ff7a18","hub":false,"deg":4,"summary":"The wallpaper posts a read-only snapshot (calendar, inbox, Robinhood, weather) to the bridge.","why":"Dashboard text is data, not instructions.","source":"brain/Core Brain Functions/Dashboard context.md","file":"Brain Map/Neurons/POST dashboard-context"},{"id":"brain_core_brain_functions_dashboard_context_dashboard_mcp_server","label":"dashboard_mcp_server.py","community":1,"lobe":"Jarvis Core System","region":"Left parietal lobe","color":"#ff7a18","hub":false,"deg":4,"summary":"Local read-only MCP server for Claude Desktop exposing dashboard summary, shifts, inbox, Robinhood, weather and Jarvis status tools.","why":"Prefer a local server over a public remote connector to keep data on the PC.","source":"brain/Core Brain Functions/Dashboard context.md","file":"Brain Map/Neurons/dashboard_mcp_server.py"},{"id":"brain_core_brain_functions_main_information_directory_jarvis_bridge","label":"Jarvis bridge","community":1,"lobe":"Jarvis Core System","region":"Left parietal lobe","color":"#ff7a18","hub":false,"deg":7,"summary":"Localhost-only HTTP server at 127.0.0.1:8765 (jarvis_bridge.py) that hosts Jarvis and serves /health, /status and the command-centre UI.","why":"Never leaves the machine.","source":"brain/Core Brain Functions/Main information directory.md","file":"Brain Map/Neurons/Jarvis bridge"},{"id":"brain_core_brain_functions_main_information_directory_restart_jarvis_cmd","label":"restart-jarvis.cmd","community":1,"lobe":"Jarvis Core System","region":"Left parietal lobe","color":"#ff7a18","hub":false,"deg":2,"summary":"Script that stops and restarts bridge and watchdog; use after any code change since Python does not hot-reload.","why":"","source":"brain/Core Brain Functions/Main information directory.md","file":"Brain Map/Neurons/restart-jarvis.cmd"},{"id":"brain_about_kayden_hp_victus_laptop","label":"HP Victus laptop","community":1,"lobe":"Jarvis Core System","region":"Left parietal lobe","color":"#ff7a18","hub":false,"deg":3,"summary":"The machine Jarvis runs on: RTX 4050 with 6GB VRAM and Intel i5, which caps local model size.","why":"Local models must fit the 6GB VRAM budget (Llama 3 8B, Phi-3, Mistral via Ollama).","source":"brain/About Kayden.md","file":"Brain Map/Neurons/HP Victus laptop"},{"id":"brain_core_brain_functions_main_information_directory_ollama","label":"Ollama local model","community":1,"lobe":"Jarvis Core System","region":"Left parietal lobe","color":"#ff7a18","hub":false,"deg":3,"summary":"Local LLM runtime; `ollama run llama3.2` pulls the model that answers non-allowlisted commands.","why":"","source":"brain/Core Brain Functions/Main information directory.md","file":"Brain Map/Neurons/Ollama local model"},{"id":"brain_jarvis_brain_jarvis","label":"Jarvis","community":1,"lobe":"Jarvis Core System","region":"Left parietal lobe","color":"#ff7a18","hub":false,"deg":5,"summary":"A local Windows voice assistant embedded in the Punch In Lively Wallpaper dashboard; this vault is his memory.","why":"","source":"brain/Jarvis Brain.md","file":"Brain Map/Neurons/Jarvis"},{"id":"brain_core_brain_functions_dashboard_context","label":"Dashboard context","community":1,"lobe":"Jarvis Core System","region":"Left parietal lobe","color":"#ffffff","hub":true,"deg":6,"summary":"Describes the read-only dashboard snapshot the wallpaper posts to the Jarvis bridge, the Claude Desktop MCP connector, and the local full-screen interface.","why":"","source":"brain/Core Brain Functions/Dashboard context.md","file":"brain/Core Brain Functions/Dashboard context"},{"id":"brain_core_brain_functions_main_information_directory","label":"Main information directory","community":1,"lobe":"Jarvis Core System","region":"Left parietal lobe","color":"#ffffff","hub":true,"deg":9,"summary":"Paths, ports, runtime, launcher, logs and install/start/stop steps for the Jarvis project.","why":"","source":"brain/Core Brain Functions/Main information directory.md","file":"brain/Core Brain Functions/Main information directory"},{"id":"brain_core_brain_functions_main_information_directory_mcp_activity_log","label":"mcp-activity.jsonl log","community":1,"lobe":"Jarvis Core System","region":"Left parietal lobe","color":"#ff7a18","hub":false,"deg":3,"summary":"Redacted log of MCP tool calls only; emails, long numbers and API-key-like values are stripped.","why":"","source":"brain/Core Brain Functions/Main information directory.md","file":"Brain Map/Neurons/mcp-activity.jsonl log"},{"id":"brain_jarvis_brain","label":"Jarvis Brain","community":1,"lobe":"Jarvis Core System","region":"Left parietal lobe","color":"#ffffff","hub":true,"deg":15,"summary":"Index note of the vault: describes Jarvis's role and links every topic note exactly once.","why":"","source":"brain/Jarvis Brain.md","file":"brain/Jarvis Brain"},{"id":"brain_core_brain_functions_maintenance_autostart","label":"Sign-in autostart","community":2,"lobe":"Reliability & Maintenance","region":"Brainstem","color":"#22d3ee","hub":false,"deg":2,"summary":"install-autostart.cmd adds a HKCU Run entry 'Jarvis' that launches start-watchdog.vbs at each sign-in.","why":"","source":"brain/Core Brain Functions/Maintenance.md","file":"Brain Map/Neurons/Sign-in autostart"},{"id":"brain_core_brain_functions_maintenance_bridge_guard","label":"Bridge guard","community":2,"lobe":"Reliability & Maintenance","region":"Brainstem","color":"#22d3ee","hub":false,"deg":2,"summary":"The bridge relaunches the watchdog if it is gone, checked every 60 s; disable with JARVIS_NO_WATCHDOG=1.","why":"","source":"brain/Core Brain Functions/Maintenance.md","file":"Brain Map/Neurons/Bridge guard"},{"id":"brain_core_brain_functions_maintenance_health_endpoint","label":"/health and /status endpoints","community":2,"lobe":"Reliability & Maintenance","region":"Brainstem","color":"#22d3ee","hub":false,"deg":4,"summary":"GET /health returns ok/ready/error/pid/mic fields; GET /status returns everything including dashboard context.","why":"","source":"brain/Core Brain Functions/Maintenance.md","file":"Brain Map/Neurons/health and status endpoints"},{"id":"brain_core_brain_functions_maintenance_jarvis_watchdog","label":"Jarvis watchdog","community":2,"lobe":"Reliability & Maintenance","region":"Brainstem","color":"#22d3ee","hub":false,"deg":7,"summary":"jarvis_watchdog.py checks /health every 30 s and kills/restarts a hung bridge; single instance via lock file.","why":"","source":"brain/Core Brain Functions/Maintenance.md","file":"Brain Map/Neurons/Jarvis watchdog"},{"id":"brain_core_brain_functions_maintenance_run_tests","label":"tests/run_tests.py","community":2,"lobe":"Reliability & Maintenance","region":"Brainstem","color":"#22d3ee","hub":false,"deg":3,"summary":"31 tests for bridge and watchdog with faked audio, safe to run while Jarvis is live.","why":"","source":"brain/Core Brain Functions/Maintenance.md","file":"Brain Map/Neurons/tests-run_tests.py"},{"id":"brain_core_brain_functions_maintenance_outage_2026_09_22","label":"2026-09-22 outage","community":2,"lobe":"Reliability & Maintenance","region":"Brainstem","color":"#22d3ee","hub":false,"deg":5,"summary":"The bridge picked the unopenable Galaxy Buds mic and the wake-word thread died without retry, leaving ready:false.","why":"","source":"brain/Core Brain Functions/Maintenance.md","file":"Brain Map/Neurons/2026-09-22 outage"},{"id":"brain_core_brain_functions_maintenance_speaking_stuck_issue","label":"Stuck 'speaking' known issue","community":2,"lobe":"Reliability & Maintenance","region":"Brainstem","color":"#22d3ee","hub":false,"deg":3,"summary":"Open issue: in follow-ups Jarvis can stay flagged speaking:true and take room chatter as commands.","why":"","source":"brain/Core Brain Functions/Maintenance.md","file":"Brain Map/Neurons/Stuck 'speaking' known issue"},{"id":"brain_core_brain_functions_maintenance","label":"Maintenance","community":2,"lobe":"Reliability & Maintenance","region":"Brainstem","color":"#ffffff","hub":true,"deg":13,"summary":"How Jarvis stays online: autostart, watchdog, bridge guard, mic self-healing, scripts, health checks, logs and outage history.","why":"","source":"brain/Core Brain Functions/Maintenance.md","file":"brain/Core Brain Functions/Maintenance"},{"id":"brain_core_brain_functions_maintenance_mic_self_healing","label":"Mic self-healing","community":2,"lobe":"Reliability & Maintenance","region":"Brainstem","color":"#22d3ee","hub":false,"deg":2,"summary":"Mic failures are retried every 5 s after re-scanning devices, with a 5-minute cooldown for repeatedly failing mics.","why":"Introduced after the 2026-09-22 outage where an unopenable mic killed wake-word listening.","source":"brain/Core Brain Functions/Maintenance.md","file":"Brain Map/Neurons/Mic self-healing"},{"id":"brain_core_brain_functions_maintenance_microphone_choice_order","label":"Microphone choice order","community":2,"lobe":"Reliability & Maintenance","region":"Brainstem","color":"#22d3ee","hub":false,"deg":3,"summary":"Default order: built-in Microphone Array, wired headset, other mic, Bluetooth hands-free last; Stereo Mix never used.","why":"Bluetooth hands-free mics (Galaxy Buds) often fail to open and holding them open degrades audio to call quality.","source":"brain/Core Brain Functions/Maintenance.md","file":"Brain Map/Neurons/Microphone choice order"},{"id":"brain_core_brain_functions_maintenance_single_instance_lock","label":"Single-instance lock","community":2,"lobe":"Reliability & Maintenance","region":"Brainstem","color":"#22d3ee","hub":false,"deg":1,"summary":"jarvis_bridge.lock with msvcrt.locking ensures only one bridge owns the mic.","why":"A second copy exits immediately; stale lock files are harmless because Windows releases the lock on exit.","source":"brain/Core Brain Functions/Maintenance.md","file":"Brain Map/Neurons/Single-instance lock"},{"id":"brain_core_brain_functions_voice_and_privacy_audio_validation_rule","label":"Audio validation rule","community":2,"lobe":"Reliability & Maintenance","region":"Brainstem","color":"#22d3ee","hub":false,"deg":3,"summary":"Any audio/TTS change must be tested with an audible sentence and /status must show speaking:false, ready:true, no error.","why":"A 200 response alone is never proof sound reached the speakers.","source":"brain/Core Brain Functions/Voice and privacy.md","file":"Brain Map/Neurons/Audio validation rule"},{"id":"brain_core_brain_functions_safety_rules_safe_sites","label":"Safe sites","community":3,"lobe":"Safety & Voice Privacy","region":"Left temporal lobe","color":"#f43f5e","hub":false,"deg":2,"summary":"calendar, gmail and weather sites plus local calculator and Notepad are the only openers.","why":"","source":"brain/Core Brain Functions/Safety rules.md","file":"Brain Map/Neurons/Safe sites"},{"id":"brain_core_brain_functions_voice_and_privacy_edge_neural_tts","label":"Edge neural TTS (en-GB-RyanNeural)","community":3,"lobe":"Safety & Voice Privacy","region":"Left temporal lobe","color":"#f43f5e","hub":false,"deg":1,"summary":"Preferred text-to-speech voice; text is sent to Microsoft's speech service; wake detection pauses during playback.","why":"Jarvis will not silently fall back to a non-British SAPI voice.","source":"brain/Core Brain Functions/Voice and privacy.md","file":"Brain Map/Neurons/Edge neural TTS (en-GB-RyanNeural)"},{"id":"brain_core_brain_functions_voice_and_privacy_faster_whisper","label":"faster-whisper transcription","community":3,"lobe":"Safety & Voice Privacy","region":"Left temporal lobe","color":"#f43f5e","hub":false,"deg":1,"summary":"Local speech-to-text kept warm after first use.","why":"","source":"brain/Core Brain Functions/Voice and privacy.md","file":"Brain Map/Neurons/faster-whisper transcription"},{"id":"brain_core_brain_functions_research_references_owasp_prompt_injection","label":"OWASP prompt injection (LLM01)","community":3,"lobe":"Safety & Voice Privacy","region":"Left temporal lobe","color":"#f43f5e","hub":false,"deg":2,"summary":"OWASP GenAI risk page on prompt injection.","why":"","source":"brain/Core Brain Functions/Research references.md","file":"Brain Map/Neurons/OWASP prompt injection (LLM01)"},{"id":"brain_core_brain_functions_safety_rules","label":"Safety rules","community":3,"lobe":"Safety & Voice Privacy","region":"Left temporal lobe","color":"#ffffff","hub":true,"deg":6,"summary":"Rules limiting what Jarvis may do: allowlisted commands, safe sites, untrusted-data handling, confirmation for risky actions, and what must never be stored.","why":"","source":"brain/Core Brain Functions/Safety rules.md","file":"brain/Core Brain Functions/Safety rules"},{"id":"brain_core_brain_functions_voice_and_privacy","label":"Voice and privacy","community":3,"lobe":"Safety & Voice Privacy","region":"Left temporal lobe","color":"#ffffff","hub":true,"deg":10,"summary":"Wake word, mic selection, detection thresholds, transcription, routing, follow-ups, text-to-speech and the audio validation rule for Jarvis.","why":"","source":"brain/Core Brain Functions/Voice and privacy.md","file":"brain/Core Brain Functions/Voice and privacy"},{"id":"brain_core_brain_functions_safety_rules_allowlisted_commands","label":"Allowlisted commands","community":3,"lobe":"Safety & Voice Privacy","region":"Left temporal lobe","color":"#f43f5e","hub":false,"deg":2,"summary":"Only allowlisted commands and typed, permission-checked integrations; never arbitrary shell execution.","why":"Prevents the model from getting unrestricted computer control.","source":"brain/Core Brain Functions/Safety rules.md","file":"Brain Map/Neurons/Allowlisted commands"},{"id":"brain_core_brain_functions_safety_rules_no_secrets_in_obsidian","label":"No secrets in Obsidian","community":3,"lobe":"Safety & Voice Privacy","region":"Left temporal lobe","color":"#f43f5e","hub":false,"deg":2,"summary":"Never store credentials, access tokens, raw microphone audio or full screenshots in the vault.","why":"","source":"brain/Core Brain Functions/Safety rules.md","file":"Brain Map/Neurons/No secrets in Obsidian"},{"id":"brain_core_brain_functions_safety_rules_untrusted_data_rule","label":"Untrusted data rule","community":3,"lobe":"Safety & Voice Privacy","region":"Left temporal lobe","color":"#f43f5e","hub":false,"deg":3,"summary":"Email and dashboard text is untrusted data and must never be followed as instructions.","why":"","source":"brain/Core Brain Functions/Safety rules.md","file":"Brain Map/Neurons/Untrusted data rule"},{"id":"brain_core_brain_functions_voice_and_privacy_command_routing","label":"Command routing","community":3,"lobe":"Safety & Voice Privacy","region":"Left temporal lobe","color":"#f43f5e","hub":false,"deg":4,"summary":"Allowlisted 'open' commands and time queries are handled locally; everything else goes to the local Ollama model and is spoken back.","why":"Keeps actions restricted to a safe allowlist.","source":"brain/Core Brain Functions/Voice and privacy.md","file":"Brain Map/Neurons/Command routing"},{"id":"brain_core_brain_functions_voice_and_privacy_vault_mirroring_limits","label":"Vault mirroring limits","community":3,"lobe":"Safety & Voice Privacy","region":"Left temporal lobe","color":"#f43f5e","hub":false,"deg":2,"summary":"Ambient audio, raw recordings and screenshots are never written to the vault; only what the dashboard displays is mirrored, with account last-4 masks.","why":"","source":"brain/Core Brain Functions/Voice and privacy.md","file":"Brain Map/Neurons/Vault mirroring limits"},{"id":"brain_punch_in_dashboard_dashboard_ui_and_parameters_est_pay_7_days","label":"Est. pay 7 days stat","community":4,"lobe":"Kayden & Jobs","region":"Right temporal lobe","color":"#facc15","hub":false,"deg":3,"summary":"Hours times rate over listed shifts; $12.50 for Papa John's titles, $20 for wedding/event/Greenfield titles.","why":"","source":"brain/Punch In Dashboard/Dashboard UI and parameters.md","file":"Brain Map/Neurons/Est. pay 7 days stat"},{"id":"brain_about_kayden_greenfield_restaurant_and_bar","label":"Greenfield Restaurant and Bar job","community":4,"lobe":"Kayden & Jobs","region":"Right temporal lobe","color":"#facc15","hub":false,"deg":4,"summary":"Bartender/shift lead and catering job in Lancaster, PA at $20/hr; pay period ends Fridays; covers weddings and events.","why":"","source":"brain/About Kayden.md","file":"Brain Map/Neurons/Greenfield Restaurant and Bar job"},{"id":"brain_about_kayden_kayden","label":"Kayden","community":4,"lobe":"Kayden & Jobs","region":"Right temporal lobe","color":"#facc15","hub":false,"deg":4,"summary":"The vault owner, based in Ephrata, PA; recent graduate planning college in spring 2027, wants to be addressed as 'sir'.","why":"","source":"brain/About Kayden.md","file":"Brain Map/Neurons/Kayden"},{"id":"brain_about_kayden_papa_john_s","label":"Papa John's job","community":4,"lobe":"Kayden & Jobs","region":"Right temporal lobe","color":"#facc15","hub":false,"deg":4,"summary":"Kayden's manager/team member job at $12.50/hr; pay period ends Tuesdays.","why":"","source":"brain/About Kayden.md","file":"Brain Map/Neurons/Papa John's job"},{"id":"brain_about_kayden","label":"About Kayden","community":4,"lobe":"Kayden & Jobs","region":"Right temporal lobe","color":"#ffffff","hub":true,"deg":7,"summary":"Profile note on Kayden: identity, jobs and pay rates, money habits, hardware, preferences and interests, used as background for Jarvis.","why":"","source":"brain/About Kayden.md","file":"brain/About Kayden"},{"id":"brain_about_kayden_bucket_system","label":"Bucket System","community":4,"lobe":"Kayden & Jobs","region":"Right temporal lobe","color":"#facc15","hub":false,"deg":2,"summary":"Kayden's budgeting method of separating bill money into dedicated accounts or envelopes.","why":"Avoids impulse spending.","source":"brain/About Kayden.md","file":"Brain Map/Neurons/Bucket System"},{"id":"brain_punch_in_dashboard_dashboard_data_schema_punch_in_data_object","label":"PUNCH_IN_DATA object","community":5,"lobe":"Dashboard Data Sync","region":"Right occipital lobe","color":"#34d399","hub":false,"deg":8,"summary":"window.PUNCH_IN_DATA with updatedAt, events, inbox, robinhood, payPeriods and weather; same object as artifact doc dashboard/data.","why":"Only last 4 digits of account numbers are ever stored.","source":"brain/Punch In Dashboard/Dashboard data schema.md","file":"Brain Map/Neurons/PUNCH_IN_DATA object"},{"id":"brain_punch_in_dashboard_dashboard_sync_punch_in_daily_sync","label":"Punch In daily sync (7 AM)","community":5,"lobe":"Dashboard Data Sync","region":"Right occipital lobe","color":"#34d399","hub":false,"deg":8,"summary":"Scheduled task (cron 0 11 * * *) pulling calendar, pay periods, Gmail, Robinhood and weather, then writing the artifact DB and every punchin*.dash folder.","why":"Cut from 48 runs/day to 1 to reduce token cost; viewing the dashboard costs no tokens.","source":"brain/Punch In Dashboard/Dashboard sync.md","file":"Brain Map/Neurons/Punch In daily sync (7 AM)"},{"id":"brain_punch_in_dashboard_dashboard_sync_refresh_punch_in_dashboard_task","label":"Refresh Punch In dashboard (paused)","community":5,"lobe":"Dashboard Data Sync","region":"Right occipital lobe","color":"#34d399","hub":false,"deg":2,"summary":"Former hourly task, paused not deleted on 2026-09-22.","why":"","source":"brain/Punch In Dashboard/Dashboard sync.md","file":"Brain Map/Neurons/Refresh Punch In dashboard (paused)"},{"id":"brain_punch_in_dashboard_dashboard_data_schema","label":"Dashboard data schema","community":5,"lobe":"Dashboard Data Sync","region":"Right occipital lobe","color":"#ffffff","hub":true,"deg":3,"summary":"The exact JSON shape of punch-in-data.js / the dashboard/data artifact doc: events, inbox, robinhood, payPeriods, weather.","why":"","source":"brain/Punch In Dashboard/Dashboard data schema.md","file":"brain/Punch In Dashboard/Dashboard data schema"},{"id":"brain_punch_in_dashboard_dashboard_snapshot","label":"Dashboard snapshot","community":5,"lobe":"Dashboard Data Sync","region":"Right occipital lobe","color":"#ffffff","hub":true,"deg":5,"summary":"What the dashboard showed at the last sync (2026-09-22): upcoming shifts, pay periods, Robinhood totals, inbox and weather. Rewritten by the daily sync.","why":"","source":"brain/Punch In Dashboard/Dashboard snapshot.md","file":"brain/Punch In Dashboard/Dashboard snapshot"},{"id":"brain_punch_in_dashboard_dashboard_sync","label":"Dashboard sync","community":5,"lobe":"Dashboard Data Sync","region":"Right occipital lobe","color":"#ffffff","hub":true,"deg":6,"summary":"The once-a-day 7 AM scheduled sync: what it pulls, where it writes, and how to change it.","why":"","source":"brain/Punch In Dashboard/Dashboard sync.md","file":"brain/Punch In Dashboard/Dashboard sync"},{"id":"brain_punch_in_dashboard_punch_in_dashboard_punch_in_data_js","label":"punch-in-data.js","community":6,"lobe":"Dashboard Display Files","region":"Left occipital lobe","color":"#60a5fa","hub":false,"deg":4,"summary":"Data file the page loads; mirrored in Documents\\PunchIn and each punchin*.dash folder.","why":"","source":"brain/Punch In Dashboard/Punch In Dashboard.md","file":"Brain Map/Neurons/punch-in-data.js"},{"id":"brain_punch_in_dashboard_punch_in_dashboard_punch_in_version_js","label":"punch-in-version.js","community":6,"lobe":"Dashboard Display Files","region":"Left occipital lobe","color":"#60a5fa","hub":false,"deg":2,"summary":"Version beacon; changing its string makes the wallpaper reload within 2 minutes.","why":"","source":"brain/Punch In Dashboard/Punch In Dashboard.md","file":"Brain Map/Neurons/punch-in-version.js"},{"id":"brain_punch_in_dashboard_punch_in_dashboard_punch_in_wallpaper_html","label":"punch-in-wallpaper.html","community":6,"lobe":"Dashboard Display Files","region":"Left occipital lobe","color":"#60a5fa","hub":false,"deg":6,"summary":"The dashboard page code (v19) shared by wallpaper and artifact.","why":"","source":"brain/Punch In Dashboard/Punch In Dashboard.md","file":"Brain Map/Neurons/punch-in-wallpaper.html"},{"id":"brain_punch_in_dashboard_punch_in_dashboard_dashboard_artifact","label":"Dashboard artifact (test copy)","community":6,"lobe":"Dashboard Display Files","region":"Left occipital lobe","color":"#60a5fa","hub":false,"deg":3,"summary":"claude.ai artifact running the same page code, reading from the artifact database doc dashboard/data; used to test visual changes first.","why":"","source":"brain/Punch In Dashboard/Punch In Dashboard.md","file":"Brain Map/Neurons/Dashboard artifact (test copy)"},{"id":"brain_punch_in_dashboard_punch_in_dashboard_lively_wallpaper","label":"Lively wallpaper (Dashboard Version 19)","community":6,"lobe":"Dashboard Display Files","region":"Left occipital lobe","color":"#60a5fa","hub":false,"deg":4,"summary":"The live desktop wallpaper in folder punchin-v19.dash, loading punch-in-data.js from next to the page.","why":"Lively's browser refuses absolute file:/// URLs, so each wallpaper folder needs its own data file.","source":"brain/Punch In Dashboard/Punch In Dashboard.md","file":"Brain Map/Neurons/Lively wallpaper (Dashboard Version 19)"},{"id":"brain_punch_in_dashboard_punch_in_dashboard","label":"Punch In Dashboard","community":6,"lobe":"Dashboard Display Files","region":"Left occipital lobe","color":"#ffffff","hub":true,"deg":13,"summary":"Index note for Kayden's personal dashboard, which runs the same page code as a Lively wallpaper and a claude.ai artifact; includes the file map.","why":"","source":"brain/Punch In Dashboard/Punch In Dashboard.md","file":"brain/Punch In Dashboard/Punch In Dashboard"},{"id":"brain_core_brain_functions_claude_code_setup_claude_code","label":"Claude Code","community":7,"lobe":"Claude Code Tooling","region":"Right frontal lobe","color":"#e879f9","hub":false,"deg":4,"summary":"Preferred tool for changing Jarvis and the dashboard (2.1.272), installed at .local\\bin and added to PATH.","why":"","source":"brain/Core Brain Functions/Claude Code setup.md","file":"Brain Map/Neurons/Claude Code"},{"id":"brain_core_brain_functions_claude_code_setup_graphify","label":"Graphify","community":7,"lobe":"Claude Code Tooling","region":"Right frontal lobe","color":"#e879f9","hub":false,"deg":2,"summary":"graphifyy 0.9.65 turns a folder into a queryable knowledge graph; Obsidian output should go to a separate folder from brain\\.","why":"Keeps generated notes from mixing with Jarvis's hand-kept notes.","source":"brain/Core Brain Functions/Claude Code setup.md","file":"Brain Map/Neurons/Graphify"},{"id":"brain_core_brain_functions_claude_code_setup_obsidian_skills_plugin","label":"Obsidian skills plugin","community":7,"lobe":"Claude Code Tooling","region":"Right frontal lobe","color":"#e879f9","hub":false,"deg":2,"summary":"kepano/obsidian-skills plugin providing Obsidian Markdown, Bases, JSON Canvas and CLI skills.","why":"","source":"brain/Core Brain Functions/Claude Code setup.md","file":"Brain Map/Neurons/Obsidian skills plugin"},{"id":"brain_core_brain_functions_claude_code_setup","label":"Claude Code setup","community":7,"lobe":"Claude Code Tooling","region":"Right frontal lobe","color":"#ffffff","hub":true,"deg":6,"summary":"How Claude Code, Git, the Obsidian skills plugin and Graphify were installed and how to launch Claude Code on this project.","why":"","source":"brain/Core Brain Functions/Claude Code setup.md","file":"brain/Core Brain Functions/Claude Code setup"},{"id":"brain_core_brain_functions_claude_code_setup_project_claude_md","label":"Project CLAUDE.md","community":7,"lobe":"Claude Code Tooling","region":"Right frontal lobe","color":"#e879f9","hub":false,"deg":3,"summary":"Documents\\CLAUDE.md tells Claude Code where everything lives, to read the vault first, and to log every change.","why":"","source":"brain/Core Brain Functions/Claude Code setup.md","file":"Brain Map/Neurons/Project CLAUDE.md"},{"id":"brain_punch_in_dashboard_dashboard_change_log_stale_wallpaper_data_fix","label":"Stale wallpaper data fix","community":8,"lobe":"Logs & Change Tracking","region":"Cerebellum","color":"#a3e635","hub":false,"deg":4,"summary":"Sync wrote to punchin.dash while v19 was active; fixed by writing to every punchin*.dash folder.","why":"","source":"brain/Punch In Dashboard/Dashboard change log.md","file":"Brain Map/Neurons/Stale wallpaper data fix"},{"id":"brain_punch_in_dashboard_dashboard_change_log","label":"Dashboard change log","community":8,"lobe":"Logs & Change Tracking","region":"Cerebellum","color":"#ffffff","hub":true,"deg":6,"summary":"Dated, newest-first record of every dashboard change with files touched and undo steps.","why":"","source":"brain/Punch In Dashboard/Dashboard change log.md","file":"brain/Punch In Dashboard/Dashboard change log"},{"id":"brain_work_log","label":"Work log","community":8,"lobe":"Logs & Change Tracking","region":"Cerebellum","color":"#ffffff","hub":true,"deg":12,"summary":"Dated summary of every work session on Jarvis, the dashboard and the vault, newest first.","why":"","source":"brain/Work log.md","file":"brain/Work log"},{"id":"brain_jarvis_brain_one_topic_one_file","label":"One topic per file design","community":8,"lobe":"Logs & Change Tracking","region":"Cerebellum","color":"#a3e635","hub":false,"deg":2,"summary":"Each topic lives in exactly one note linked from the index; nothing is duplicated.","why":"When something changes, only the one owning file needs editing.","source":"brain/Jarvis Brain.md","file":"Brain Map/Neurons/One topic per file design"},{"id":"brain_punch_in_dashboard_dashboard_change_log_change_log_rule","label":"Change log rule","community":8,"lobe":"Logs & Change Tracking","region":"Cerebellum","color":"#a3e635","hub":false,"deg":2,"summary":"Every dashboard change gets an entry with date, change, parameters, files and undo steps, newest first.","why":"","source":"brain/Punch In Dashboard/Dashboard change log.md","file":"Brain Map/Neurons/Change log rule"},{"id":"brain_punch_in_dashboard_dashboard_ui_and_parameters_jarvis_orb","label":"Jarvis orb","community":9,"lobe":"Dashboard UI Widgets","region":"Right parietal lobe","color":"#818cf8","hub":false,"deg":3,"summary":"Dashboard element showing status from the local bridge /status; clickable to mute/unmute.","why":"","source":"brain/Punch In Dashboard/Dashboard UI and parameters.md","file":"Brain Map/Neurons/Jarvis orb"},{"id":"brain_punch_in_dashboard_dashboard_ui_and_parameters_open_meteo_weather","label":"Open-Meteo live weather","community":9,"lobe":"Dashboard UI Widgets","region":"Right parietal lobe","color":"#818cf8","hub":false,"deg":1,"summary":"Weather panel fetched live from Open-Meteo every 30 min on the wallpaper.","why":"","source":"brain/Punch In Dashboard/Dashboard UI and parameters.md","file":"Brain Map/Neurons/Open-Meteo live weather"},{"id":"brain_punch_in_dashboard_dashboard_ui_and_parameters_up_next_panel","label":"Up next panel","community":9,"lobe":"Dashboard UI Widgets","region":"Right parietal lobe","color":"#818cf8","hub":false,"deg":2,"summary":"Schedule panel always starting with today's header, showing up to 6 rows and hiding events after their end time.","why":"","source":"brain/Punch In Dashboard/Dashboard UI and parameters.md","file":"Brain Map/Neurons/Up next panel"},{"id":"brain_punch_in_dashboard_dashboard_ui_and_parameters","label":"Dashboard UI and parameters","community":9,"lobe":"Dashboard UI Widgets","region":"Right parietal lobe","color":"#ffffff","hub":true,"deg":7,"summary":"Every dashboard panel, the Up next rules, constants, colors, artifact-only behaviour and mouse behaviour of punch-in-wallpaper.html v19.","why":"","source":"brain/Punch In Dashboard/Dashboard UI and parameters.md","file":"brain/Punch In Dashboard/Dashboard UI and parameters"},{"id":"conversation_engine","label":"Conversation engine","community":1,"lobe":"Jarvis Core System","region":"Left parietal lobe","color":"#ff7a18","hub":false,"deg":3,"summary":"One conversation and one voice at a time; cut him off by talking over him; 'shut up/close' closes windows; 2 s of quiet ends it.","why":"Fixed multiple Jarvises and the stuck-speaking bug (2026-09-22).","source":"brain/Core Brain Functions/Voice and privacy.md","file":"brain/Core Brain Functions/Voice and privacy"},{"id":"exact_answers","label":"Exact answers from dashboard","community":5,"lobe":"Dashboard Data Sync","region":"Right occipital lobe","color":"#34d399","hub":false,"deg":2,"summary":"Time, date, shifts, weather and unread mail answered straight from the dashboard data; the model gets a short briefing.","why":"Accuracy: the small model no longer guesses numbers.","source":"brain/Core Brain Functions/Voice and privacy.md","file":"brain/Core Brain Functions/Voice and privacy"},{"id":"piper_voice","label":"Piper offline voice","community":3,"lobe":"Safety & Voice Privacy","region":"Left temporal lobe","color":"#f43f5e","hub":false,"deg":2,"summary":"Jarvis speaks with Piper en_GB-alan-medium, fully offline; Edge neural voice is the fallback.","why":"Faster and nothing leaves the laptop (2026-09-23).","source":"brain/Core Brain Functions/Voice and privacy.md","file":"brain/Core Brain Functions/Voice and privacy"},{"id":"app_launcher","label":"App and website launcher","community":1,"lobe":"Jarvis Core System","region":"Left parietal lobe","color":"#ff7a18","hub":false,"deg":2,"summary":"'open YouTube' opens the installed app (or the site); 'pull up youtube.com' opens the browser. 177 Start menu apps.","why":"","source":"brain/Core Brain Functions/Voice and privacy.md","file":"brain/Core Brain Functions/Voice and privacy"},{"id":"bridge_lockdown","label":"Bridge locked to this PC","community":3,"lobe":"Safety & Voice Privacy","region":"Left temporal lobe","color":"#f43f5e","hub":false,"deg":2,"summary":"Websites can't send Jarvis commands or read /status; only the wallpaper, command centre and local tools.","why":"Closed a hole where any website could read inbox and balances.","source":"brain/Core Brain Functions/Safety rules.md","file":"brain/Core Brain Functions/Safety rules"},{"id":"jarvis_os_dashboard","label":"Jarvis OS dashboard","community":9,"lobe":"Dashboard UI Widgets","region":"Right parietal lobe","color":"#818cf8","hub":false,"deg":4,"summary":"Control room at 127.0.0.1:8765/dashboard: Punch In clock, green orb, runs, sessions, projects, specs, memory, usage.","why":"Modelled on ethanplusai's JARVIS, built from Kayden's data.","source":"brain/Core Brain Functions/Jarvis OS dashboard.md","file":"brain/Core Brain Functions/Jarvis OS dashboard"},{"id":"green_orb","label":"Green network orb","community":9,"lobe":"Dashboard UI Widgets","region":"Right parietal lobe","color":"#818cf8","hub":false,"deg":3,"summary":"Shared jarvis_orb.js globe: dense web + swirling strands; pulses when he speaks. On the wallpaper and dashboard.","why":"","source":"brain/Core Brain Functions/Jarvis OS dashboard.md","file":"brain/Core Brain Functions/Jarvis OS dashboard"},{"id":"future_plans","label":"Jarvis future plans","community":0,"lobe":"Future Integrations & Research","region":"Left frontal lobe","color":"#c084fc","hub":false,"deg":3,"summary":"Blocked/waiting: dashboard terminal + Jarvis running commands, messaging Claude sessions, brainstorm-then-build, token, Git.","why":"Terminal wiring was refused by Claude Code's safety check pending Kayden's permission settings.","source":"brain/Core Brain Functions/Jarvis future plans.md","file":"brain/Core Brain Functions/Jarvis future plans"},{"id":"brain_agentic_os_agentic_os","label":"Agentic OS","community":1,"lobe":"Jarvis Core System","region":"Left parietal lobe","color":"#ffffff","hub":true,"deg":7,"summary":"Project index: Jarvis as an agentic OS. Dashboard pieces and every link (artifacts, bridge routes, shortcuts, scripts).","why":"","source":"brain/Agentic OS/Agentic OS.md","file":"brain/Agentic OS/Agentic OS"},{"id":"brain_agentic_os_agentic_os_change_log","label":"Agentic OS change log","community":8,"lobe":"Logs & Change Tracking","region":"Cerebellum","color":"#ffffff","hub":true,"deg":2,"summary":"Dated record of every Jarvis, Jarvis OS and visuals change since 2026-09-25, with undo steps.","why":"","source":"brain/Agentic OS/Agentic OS change log.md","file":"brain/Agentic OS/Agentic OS change log"},{"id":"brain_agentic_os_jarvis_black_hole","label":"Jarvis Black Hole","community":9,"lobe":"Dashboard UI Widgets","region":"Right parietal lobe","color":"#ffffff","hub":true,"deg":4,"summary":"Cinematic WebGL black hole: lensed disk, four gravity-driven rainbow lights, deep blacks, auto resolution up to 2x. Runs on the RTX.","why":"","source":"brain/Agentic OS/Jarvis Black Hole.md","file":"brain/Agentic OS/Jarvis Black Hole"},{"id":"brain_agentic_os_jarvis_brain_3d","label":"Jarvis Brain 3D","community":9,"lobe":"Dashboard UI Widgets","region":"Right parietal lobe","color":"#ffffff","hub":true,"deg":3,"summary":"This page: the vault drawn as a glowing 3D brain. /brain on the bridge, pinned artifact, BRAIN GRAPH pill.","why":"","source":"brain/Agentic OS/Jarvis Brain 3D.md","file":"brain/Agentic OS/Jarvis Brain 3D"},{"id":"gravity_lights","label":"Gravity-driven lights","community":9,"lobe":"Dashboard UI Widgets","region":"Right parietal lobe","color":"#818cf8","hub":false,"deg":1,"summary":"Four small lights pulled by the hole (Paczynski-Wiita, GM 45); thin rainbow tails; random 2.3-3.7x speed bursts.","why":"Replaced the rake-like circle trails.","source":"brain/Agentic OS/Jarvis Black Hole.md","file":"brain/Agentic OS/Jarvis Black Hole"},{"id":"rtx_edge_window","label":"RTX Edge window","community":2,"lobe":"Reliability & Maintenance","region":"Brainstem","color":"#22d3ee","hub":false,"deg":2,"summary":"open-on-rtx.ps1: Edge app window forced onto the RTX 4050 (own profile). Every Jarvis visual test opens here.","why":"The Claude app and Opera GX render on Intel graphics.","source":"brain/Agentic OS/Agentic OS.md","file":"brain/Agentic OS/Agentic OS"}],"links":[{"source":"brain_core_brain_functions_maintenance_autostart","target":"brain_core_brain_functions_maintenance_jarvis_watchdog","rel":"triggers","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_maintenance_jarvis_watchdog","target":"brain_core_brain_functions_maintenance_health_endpoint","rel":"triggers","conf":"EXTRACTED"},{"source":"brain_about_kayden_hp_victus_laptop","target":"brain_core_brain_functions_main_information_directory_ollama","rel":"related to","conf":"EXTRACTED"},{"source":"brain_about_kayden_kayden","target":"brain_about_kayden_bucket_system","rel":"related to","conf":"EXTRACTED"},{"source":"brain_about_kayden_kayden","target":"brain_about_kayden_greenfield_restaurant_and_bar","rel":"related to","conf":"EXTRACTED"},{"source":"brain_about_kayden_kayden","target":"brain_about_kayden_papa_john_s","rel":"related to","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_claude_code_setup_claude_code","target":"brain_core_brain_functions_claude_code_setup_graphify","rel":"related to","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_claude_code_setup_claude_code","target":"brain_core_brain_functions_claude_code_setup_obsidian_skills_plugin","rel":"related to","conf":"EXTRACTED"},{"source":"brain_jarvis_brain_jarvis","target":"brain_punch_in_dashboard_punch_in_dashboard_lively_wallpaper","rel":"related to","conf":"EXTRACTED"},{"source":"brain_punch_in_dashboard_dashboard_sync_punch_in_daily_sync","target":"brain_punch_in_dashboard_dashboard_sync_refresh_punch_in_dashboard_task","rel":"related to","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_maintenance_outage_2026_09_22","target":"brain_core_brain_functions_maintenance_mic_self_healing","rel":"explains why","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_maintenance_outage_2026_09_22","target":"brain_core_brain_functions_maintenance_microphone_choice_order","rel":"explains why","conf":"EXTRACTED"},{"source":"brain_about_kayden","target":"brain_about_kayden_bucket_system","rel":"references","conf":"EXTRACTED"},{"source":"brain_about_kayden","target":"brain_about_kayden_greenfield_restaurant_and_bar","rel":"references","conf":"EXTRACTED"},{"source":"brain_about_kayden","target":"brain_about_kayden_hp_victus_laptop","rel":"references","conf":"EXTRACTED"},{"source":"brain_about_kayden","target":"brain_about_kayden_kayden","rel":"references","conf":"EXTRACTED"},{"source":"brain_about_kayden","target":"brain_about_kayden_papa_john_s","rel":"references","conf":"EXTRACTED"},{"source":"brain_about_kayden","target":"brain_jarvis_brain_jarvis","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_claude_code_setup","target":"brain_core_brain_functions_claude_code_setup_claude_code","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_claude_code_setup","target":"brain_core_brain_functions_claude_code_setup_graphify","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_claude_code_setup","target":"brain_core_brain_functions_claude_code_setup_obsidian_skills_plugin","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_claude_code_setup","target":"brain_core_brain_functions_claude_code_setup_project_claude_md","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_claude_code_setup_claude_code","target":"brain_core_brain_functions_claude_code_setup_project_claude_md","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_dashboard_context","target":"brain_core_brain_functions_dashboard_context_command_centre_interface","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_dashboard_context","target":"brain_core_brain_functions_dashboard_context_dashboard_context_post","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_dashboard_context","target":"brain_core_brain_functions_dashboard_context_dashboard_mcp_server","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_main_information_directory","target":"brain_core_brain_functions_dashboard_context","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_main_information_directory","target":"brain_core_brain_functions_dashboard_context_dashboard_mcp_server","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_main_information_directory","target":"brain_core_brain_functions_main_information_directory_jarvis_bridge","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_main_information_directory","target":"brain_core_brain_functions_main_information_directory_mcp_activity_log","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_main_information_directory","target":"brain_core_brain_functions_main_information_directory_ollama","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_main_information_directory","target":"brain_core_brain_functions_main_information_directory_restart_jarvis_cmd","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_main_information_directory","target":"brain_core_brain_functions_main_information_directory_setup_ps1","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_main_information_directory","target":"brain_core_brain_functions_maintenance","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_maintenance","target":"brain_core_brain_functions_maintenance_autostart","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_maintenance","target":"brain_core_brain_functions_maintenance_bridge_guard","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_maintenance","target":"brain_core_brain_functions_maintenance_health_endpoint","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_maintenance","target":"brain_core_brain_functions_maintenance_jarvis_watchdog","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_maintenance","target":"brain_core_brain_functions_maintenance_mic_self_healing","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_maintenance","target":"brain_core_brain_functions_maintenance_microphone_choice_order","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_maintenance","target":"brain_core_brain_functions_maintenance_outage_2026_09_22","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_maintenance","target":"brain_core_brain_functions_maintenance_run_tests","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_maintenance","target":"brain_core_brain_functions_maintenance_single_instance_lock","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_maintenance","target":"brain_core_brain_functions_maintenance_speaking_stuck_issue","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_maintenance_run_tests","target":"brain_core_brain_functions_main_information_directory_jarvis_bridge","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_maintenance_run_tests","target":"brain_core_brain_functions_maintenance_jarvis_watchdog","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_recommended_next_integrations","target":"brain_core_brain_functions_recommended_next_integrations_home_assistant_integration","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_recommended_next_integrations","target":"brain_core_brain_functions_recommended_next_integrations_local_audit_timeline","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_recommended_next_integrations","target":"brain_core_brain_functions_recommended_next_integrations_microsoft_graph_integration","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_recommended_next_integrations","target":"brain_core_brain_functions_recommended_next_integrations_push_to_talk_hotkey","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_recommended_next_integrations","target":"brain_core_brain_functions_recommended_next_integrations_windows_notifications","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_research_references","target":"brain_core_brain_functions_research_references_home_assistant_voice_docs","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_research_references","target":"brain_core_brain_functions_research_references_ms_graph_docs","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_research_references","target":"brain_core_brain_functions_research_references_ms_ui_automation_docs","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_research_references","target":"brain_core_brain_functions_research_references_openwakeword","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_research_references","target":"brain_core_brain_functions_research_references_owasp_prompt_injection","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_research_references","target":"brain_core_brain_functions_research_references_windows_app_notifications_docs","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_safety_rules","target":"brain_core_brain_functions_safety_rules_allowlisted_commands","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_safety_rules","target":"brain_core_brain_functions_safety_rules_explicit_confirmation","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_safety_rules","target":"brain_core_brain_functions_safety_rules_no_secrets_in_obsidian","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_safety_rules","target":"brain_core_brain_functions_safety_rules_safe_sites","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_safety_rules","target":"brain_core_brain_functions_safety_rules_untrusted_data_rule","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_voice_and_privacy","target":"brain_core_brain_functions_voice_and_privacy_audio_validation_rule","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_voice_and_privacy","target":"brain_core_brain_functions_voice_and_privacy_command_routing","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_voice_and_privacy","target":"brain_core_brain_functions_voice_and_privacy_edge_neural_tts","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_voice_and_privacy","target":"brain_core_brain_functions_voice_and_privacy_faster_whisper","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_voice_and_privacy","target":"brain_core_brain_functions_voice_and_privacy_hey_jarvis_wake_word","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_voice_and_privacy","target":"brain_core_brain_functions_voice_and_privacy_vault_mirroring_limits","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_voice_and_privacy","target":"brain_punch_in_dashboard_dashboard_snapshot","rel":"references","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_voice_and_privacy_audio_validation_rule","target":"brain_core_brain_functions_maintenance_health_endpoint","rel":"references","conf":"EXTRACTED"},{"source":"brain_jarvis_brain","target":"brain_about_kayden","rel":"references","conf":"EXTRACTED"},{"source":"brain_jarvis_brain","target":"brain_core_brain_functions_claude_code_setup","rel":"references","conf":"EXTRACTED"},{"source":"brain_jarvis_brain","target":"brain_core_brain_functions_dashboard_context","rel":"references","conf":"EXTRACTED"},{"source":"brain_jarvis_brain","target":"brain_core_brain_functions_main_information_directory","rel":"references","conf":"EXTRACTED"},{"source":"brain_jarvis_brain","target":"brain_core_brain_functions_maintenance","rel":"references","conf":"EXTRACTED"},{"source":"brain_jarvis_brain","target":"brain_core_brain_functions_recommended_next_integrations","rel":"references","conf":"EXTRACTED"},{"source":"brain_jarvis_brain","target":"brain_core_brain_functions_research_references","rel":"references","conf":"EXTRACTED"},{"source":"brain_jarvis_brain","target":"brain_core_brain_functions_safety_rules","rel":"references","conf":"EXTRACTED"},{"source":"brain_jarvis_brain","target":"brain_core_brain_functions_voice_and_privacy","rel":"references","conf":"EXTRACTED"},{"source":"brain_jarvis_brain","target":"brain_jarvis_brain_jarvis","rel":"references","conf":"EXTRACTED"},{"source":"brain_jarvis_brain","target":"brain_jarvis_brain_one_topic_one_file","rel":"references","conf":"EXTRACTED"},{"source":"brain_jarvis_brain","target":"brain_punch_in_dashboard_punch_in_dashboard","rel":"references","conf":"EXTRACTED"},{"source":"brain_jarvis_brain","target":"brain_work_log","rel":"references","conf":"EXTRACTED"},{"source":"brain_punch_in_dashboard_dashboard_change_log","target":"brain_punch_in_dashboard_dashboard_change_log_change_log_rule","rel":"references","conf":"EXTRACTED"},{"source":"brain_punch_in_dashboard_dashboard_change_log","target":"brain_punch_in_dashboard_dashboard_change_log_stale_wallpaper_data_fix","rel":"references","conf":"EXTRACTED"},{"source":"brain_punch_in_dashboard_dashboard_change_log","target":"brain_punch_in_dashboard_dashboard_sync","rel":"references","conf":"EXTRACTED"},{"source":"brain_punch_in_dashboard_dashboard_data_schema","target":"brain_punch_in_dashboard_dashboard_data_schema_punch_in_data_object","rel":"references","conf":"EXTRACTED"},{"source":"brain_punch_in_dashboard_dashboard_sync","target":"brain_punch_in_dashboard_dashboard_data_schema","rel":"references","conf":"EXTRACTED"},{"source":"brain_punch_in_dashboard_dashboard_sync","target":"brain_punch_in_dashboard_dashboard_sync_punch_in_daily_sync","rel":"references","conf":"EXTRACTED"},{"source":"brain_punch_in_dashboard_dashboard_sync","target":"brain_punch_in_dashboard_dashboard_sync_refresh_punch_in_dashboard_task","rel":"references","conf":"EXTRACTED"},{"source":"brain_punch_in_dashboard_dashboard_ui_and_parameters","target":"brain_punch_in_dashboard_dashboard_ui_and_parameters_est_pay_7_days","rel":"references","conf":"EXTRACTED"},{"source":"brain_punch_in_dashboard_dashboard_ui_and_parameters","target":"brain_punch_in_dashboard_dashboard_ui_and_parameters_jarvis_orb","rel":"references","conf":"EXTRACTED"},{"source":"brain_punch_in_dashboard_dashboard_ui_and_parameters","target":"brain_punch_in_dashboard_dashboard_ui_and_parameters_open_meteo_weather","rel":"references","conf":"EXTRACTED"},{"source":"brain_punch_in_dashboard_dashboard_ui_and_parameters","target":"brain_punch_in_dashboard_dashboard_ui_and_parameters_up_next_panel","rel":"references","conf":"EXTRACTED"},{"source":"brain_punch_in_dashboard_dashboard_ui_and_parameters","target":"brain_punch_in_dashboard_punch_in_dashboard_punch_in_wallpaper_html","rel":"references","conf":"EXTRACTED"},{"source":"brain_punch_in_dashboard_punch_in_dashboard","target":"brain_core_brain_functions_dashboard_context","rel":"references","conf":"EXTRACTED"},{"source":"brain_punch_in_dashboard_punch_in_dashboard","target":"brain_punch_in_dashboard_dashboard_change_log","rel":"references","conf":"EXTRACTED"},{"source":"brain_punch_in_dashboard_punch_in_dashboard","target":"brain_punch_in_dashboard_dashboard_data_schema","rel":"references","conf":"EXTRACTED"},{"source":"brain_punch_in_dashboard_punch_in_dashboard","target":"brain_punch_in_dashboard_dashboard_snapshot","rel":"references","conf":"EXTRACTED"},{"source":"brain_punch_in_dashboard_punch_in_dashboard","target":"brain_punch_in_dashboard_dashboard_sync","rel":"references","conf":"EXTRACTED"},{"source":"brain_punch_in_dashboard_punch_in_dashboard","target":"brain_punch_in_dashboard_dashboard_ui_and_parameters","rel":"references","conf":"EXTRACTED"},{"source":"brain_punch_in_dashboard_punch_in_dashboard","target":"brain_punch_in_dashboard_punch_in_dashboard_dashboard_artifact","rel":"references","conf":"EXTRACTED"},{"source":"brain_punch_in_dashboard_punch_in_dashboard","target":"brain_punch_in_dashboard_punch_in_dashboard_lively_wallpaper","rel":"references","conf":"EXTRACTED"},{"source":"brain_punch_in_dashboard_punch_in_dashboard","target":"brain_punch_in_dashboard_punch_in_dashboard_punch_in_data_js","rel":"references","conf":"EXTRACTED"},{"source":"brain_punch_in_dashboard_punch_in_dashboard","target":"brain_punch_in_dashboard_punch_in_dashboard_punch_in_version_js","rel":"references","conf":"EXTRACTED"},{"source":"brain_punch_in_dashboard_punch_in_dashboard","target":"brain_punch_in_dashboard_punch_in_dashboard_punch_in_wallpaper_html","rel":"references","conf":"EXTRACTED"},{"source":"brain_punch_in_dashboard_punch_in_dashboard_dashboard_artifact","target":"brain_punch_in_dashboard_punch_in_dashboard_punch_in_wallpaper_html","rel":"references","conf":"EXTRACTED"},{"source":"brain_punch_in_dashboard_punch_in_dashboard_lively_wallpaper","target":"brain_punch_in_dashboard_punch_in_dashboard_punch_in_wallpaper_html","rel":"references","conf":"EXTRACTED"},{"source":"brain_punch_in_dashboard_punch_in_dashboard_punch_in_wallpaper_html","target":"brain_punch_in_dashboard_punch_in_dashboard_punch_in_version_js","rel":"references","conf":"EXTRACTED"},{"source":"brain_work_log","target":"brain_core_brain_functions_claude_code_setup","rel":"references","conf":"EXTRACTED"},{"source":"brain_work_log","target":"brain_core_brain_functions_maintenance","rel":"references","conf":"EXTRACTED"},{"source":"brain_work_log","target":"brain_core_brain_functions_maintenance_outage_2026_09_22","rel":"references","conf":"EXTRACTED"},{"source":"brain_work_log","target":"brain_core_brain_functions_maintenance_speaking_stuck_issue","rel":"references","conf":"EXTRACTED"},{"source":"brain_work_log","target":"brain_punch_in_dashboard_dashboard_change_log","rel":"references","conf":"EXTRACTED"},{"source":"brain_work_log","target":"brain_punch_in_dashboard_dashboard_change_log_stale_wallpaper_data_fix","rel":"references","conf":"EXTRACTED"},{"source":"brain_work_log","target":"brain_punch_in_dashboard_dashboard_snapshot","rel":"references","conf":"EXTRACTED"},{"source":"brain_work_log","target":"brain_punch_in_dashboard_dashboard_sync","rel":"references","conf":"EXTRACTED"},{"source":"brain_work_log","target":"brain_punch_in_dashboard_dashboard_ui_and_parameters","rel":"references","conf":"EXTRACTED"},{"source":"brain_work_log","target":"brain_punch_in_dashboard_punch_in_dashboard","rel":"references","conf":"EXTRACTED"},{"source":"brain_punch_in_dashboard_dashboard_data_schema_punch_in_data_object","target":"brain_punch_in_dashboard_punch_in_dashboard_punch_in_data_js","rel":"shares data with","conf":"EXTRACTED"},{"source":"brain_punch_in_dashboard_dashboard_sync_punch_in_daily_sync","target":"brain_punch_in_dashboard_dashboard_data_schema_punch_in_data_object","rel":"shares data with","conf":"EXTRACTED"},{"source":"brain_punch_in_dashboard_dashboard_sync_punch_in_daily_sync","target":"brain_punch_in_dashboard_punch_in_dashboard_punch_in_data_js","rel":"shares data with","conf":"EXTRACTED"},{"source":"brain_punch_in_dashboard_dashboard_sync_punch_in_daily_sync","target":"brain_punch_in_dashboard_dashboard_snapshot","rel":"shares data with","conf":"EXTRACTED"},{"source":"brain_punch_in_dashboard_punch_in_dashboard_punch_in_wallpaper_html","target":"brain_punch_in_dashboard_punch_in_dashboard_punch_in_data_js","rel":"shares data with","conf":"EXTRACTED"},{"source":"brain_core_brain_functions_maintenance_speaking_stuck_issue","target":"brain_core_brain_functions_voice_and_privacy_audio_validation_rule","rel":"related to","conf":"INFERRED"},{"source":"brain_core_brain_functions_research_references_ms_ui_automation_docs","target":"brain_core_brain_functions_safety_rules_explicit_confirmation","rel":"related to","conf":"INFERRED"},{"source":"brain_punch_in_dashboard_dashboard_change_log_change_log_rule","target":"brain_jarvis_brain_one_topic_one_file","rel":"similar to","conf":"INFERRED"},{"source":"brain_core_brain_functions_claude_code_setup_project_claude_md","target":"brain_work_log","rel":"related to","conf":"INFERRED"},{"source":"brain_core_brain_functions_recommended_next_integrations_push_to_talk_hotkey","target":"brain_core_brain_functions_voice_and_privacy_hey_jarvis_wake_word","rel":"related to","conf":"INFERRED"},{"source":"brain_core_brain_functions_recommended_next_integrations_local_audit_timeline","target":"brain_core_brain_functions_main_information_directory_mcp_activity_log","rel":"similar to","conf":"INFERRED"},{"source":"brain_core_brain_functions_dashboard_context_dashboard_context_post","target":"brain_punch_in_dashboard_dashboard_data_schema_punch_in_data_object","rel":"shares data with","conf":"INFERRED"},{"source":"brain_core_brain_functions_dashboard_context_dashboard_mcp_server","target":"brain_punch_in_dashboard_dashboard_data_schema_punch_in_data_object","rel":"shares data with","conf":"INFERRED"},{"source":"brain_core_brain_functions_main_information_directory_restart_jarvis_cmd","target":"brain_core_brain_functions_main_information_directory_jarvis_bridge","rel":"triggers","conf":"INFERRED"},{"source":"brain_core_brain_functions_maintenance_bridge_guard","target":"brain_core_brain_functions_maintenance_jarvis_watchdog","rel":"triggers","conf":"INFERRED"},{"source":"brain_core_brain_functions_recommended_next_integrations_home_assistant_integration","target":"brain_core_brain_functions_research_references_home_assistant_voice_docs","rel":"cites","conf":"INFERRED"},{"source":"brain_core_brain_functions_recommended_next_integrations_microsoft_graph_integration","target":"brain_core_brain_functions_research_references_ms_graph_docs","rel":"cites","conf":"INFERRED"},{"source":"brain_core_brain_functions_recommended_next_integrations_windows_notifications","target":"brain_core_brain_functions_research_references_windows_app_notifications_docs","rel":"cites","conf":"INFERRED"},{"source":"brain_core_brain_functions_safety_rules_untrusted_data_rule","target":"brain_core_brain_functions_research_references_owasp_prompt_injection","rel":"cites","conf":"INFERRED"},{"source":"brain_core_brain_functions_maintenance_microphone_choice_order","target":"brain_core_brain_functions_voice_and_privacy","rel":"related to","conf":"INFERRED"},{"source":"brain_core_brain_functions_recommended_next_integrations_microsoft_graph_integration","target":"brain_core_brain_functions_safety_rules_explicit_confirmation","rel":"related to","conf":"INFERRED"},{"source":"brain_core_brain_functions_maintenance_outage_2026_09_22","target":"brain_core_brain_functions_maintenance_jarvis_watchdog","rel":"explains why","conf":"INFERRED"},{"source":"brain_core_brain_functions_voice_and_privacy","target":"brain_punch_in_dashboard_dashboard_ui_and_parameters_jarvis_orb","rel":"references","conf":"INFERRED"},{"source":"brain_core_brain_functions_voice_and_privacy_hey_jarvis_wake_word","target":"brain_core_brain_functions_research_references_openwakeword","rel":"references","conf":"INFERRED"},{"source":"brain_punch_in_dashboard_dashboard_change_log_stale_wallpaper_data_fix","target":"brain_punch_in_dashboard_punch_in_dashboard_lively_wallpaper","rel":"references","conf":"INFERRED"},{"source":"brain_punch_in_dashboard_dashboard_sync_punch_in_daily_sync","target":"brain_about_kayden_greenfield_restaurant_and_bar","rel":"references","conf":"INFERRED"},{"source":"brain_punch_in_dashboard_dashboard_sync_punch_in_daily_sync","target":"brain_about_kayden_papa_john_s","rel":"references","conf":"INFERRED"},{"source":"brain_core_brain_functions_voice_and_privacy_vault_mirroring_limits","target":"brain_core_brain_functions_safety_rules_no_secrets_in_obsidian","rel":"similar to","conf":"INFERRED"},{"source":"brain_core_brain_functions_dashboard_context_dashboard_mcp_server","target":"brain_core_brain_functions_main_information_directory_mcp_activity_log","rel":"shares data with","conf":"INFERRED"},{"source":"brain_punch_in_dashboard_dashboard_snapshot","target":"brain_punch_in_dashboard_dashboard_data_schema_punch_in_data_object","rel":"shares data with","conf":"INFERRED"},{"source":"brain_core_brain_functions_dashboard_context_dashboard_context_post","target":"brain_core_brain_functions_main_information_directory_jarvis_bridge","rel":"triggers","conf":"INFERRED"},{"source":"brain_core_brain_functions_voice_and_privacy_command_routing","target":"brain_core_brain_functions_main_information_directory_ollama","rel":"triggers","conf":"INFERRED"},{"source":"brain_punch_in_dashboard_dashboard_ui_and_parameters_jarvis_orb","target":"brain_core_brain_functions_maintenance_health_endpoint","rel":"triggers","conf":"INFERRED"},{"source":"brain_about_kayden_hp_victus_laptop","target":"brain_jarvis_brain_jarvis","rel":"related to","conf":"INFERRED"},{"source":"brain_core_brain_functions_dashboard_context_dashboard_context_post","target":"brain_core_brain_functions_safety_rules_untrusted_data_rule","rel":"related to","conf":"INFERRED"},{"source":"brain_jarvis_brain_jarvis","target":"brain_core_brain_functions_main_information_directory_jarvis_bridge","rel":"related to","conf":"INFERRED"},{"source":"brain_core_brain_functions_voice_and_privacy_command_routing","target":"brain_core_brain_functions_safety_rules_allowlisted_commands","rel":"implements","conf":"INFERRED"},{"source":"brain_punch_in_dashboard_dashboard_change_log_stale_wallpaper_data_fix","target":"brain_punch_in_dashboard_dashboard_sync_punch_in_daily_sync","rel":"explains why","conf":"INFERRED"},{"source":"brain_core_brain_functions_dashboard_context_command_centre_interface","target":"brain_core_brain_functions_main_information_directory_jarvis_bridge","rel":"references","conf":"INFERRED"},{"source":"brain_core_brain_functions_main_information_directory_setup_ps1","target":"brain_core_brain_functions_research_references_openwakeword","rel":"references","conf":"INFERRED"},{"source":"brain_core_brain_functions_maintenance_jarvis_watchdog","target":"brain_core_brain_functions_main_information_directory_jarvis_bridge","rel":"references","conf":"INFERRED"},{"source":"brain_core_brain_functions_voice_and_privacy_command_routing","target":"brain_core_brain_functions_safety_rules_safe_sites","rel":"references","conf":"INFERRED"},{"source":"brain_punch_in_dashboard_dashboard_ui_and_parameters_est_pay_7_days","target":"brain_about_kayden_greenfield_restaurant_and_bar","rel":"references","conf":"INFERRED"},{"source":"brain_punch_in_dashboard_dashboard_ui_and_parameters_est_pay_7_days","target":"brain_about_kayden_papa_john_s","rel":"references","conf":"INFERRED"},{"source":"brain_punch_in_dashboard_dashboard_ui_and_parameters_up_next_panel","target":"brain_punch_in_dashboard_dashboard_data_schema_punch_in_data_object","rel":"shares data with","conf":"INFERRED"},{"source":"brain_punch_in_dashboard_punch_in_dashboard_dashboard_artifact","target":"brain_punch_in_dashboard_dashboard_data_schema_punch_in_data_object","rel":"shares data with","conf":"INFERRED"},{"source":"conversation_engine","target":"brain_core_brain_functions_main_information_directory_jarvis_bridge","rel":"relates to","conf":"EXTRACTED"},{"source":"conversation_engine","target":"brain_core_brain_functions_maintenance_speaking_stuck_issue","rel":"relates to","conf":"EXTRACTED"},{"source":"conversation_engine","target":"brain_core_brain_functions_voice_and_privacy","rel":"relates to","conf":"EXTRACTED"},{"source":"exact_answers","target":"brain_core_brain_functions_dashboard_context","rel":"relates to","conf":"EXTRACTED"},{"source":"exact_answers","target":"brain_punch_in_dashboard_dashboard_data_schema_punch_in_data_object","rel":"relates to","conf":"EXTRACTED"},{"source":"piper_voice","target":"brain_core_brain_functions_voice_and_privacy_edge_neural_tts","rel":"relates to","conf":"EXTRACTED"},{"source":"piper_voice","target":"brain_core_brain_functions_voice_and_privacy","rel":"relates to","conf":"EXTRACTED"},{"source":"app_launcher","target":"brain_core_brain_functions_voice_and_privacy_command_routing","rel":"relates to","conf":"EXTRACTED"},{"source":"app_launcher","target":"brain_core_brain_functions_safety_rules_safe_sites","rel":"relates to","conf":"EXTRACTED"},{"source":"bridge_lockdown","target":"brain_core_brain_functions_safety_rules","rel":"relates to","conf":"EXTRACTED"},{"source":"bridge_lockdown","target":"brain_core_brain_functions_main_information_directory_jarvis_bridge","rel":"relates to","conf":"EXTRACTED"},{"source":"jarvis_os_dashboard","target":"brain_punch_in_dashboard_dashboard_ui_and_parameters_jarvis_orb","rel":"relates to","conf":"EXTRACTED"},{"source":"jarvis_os_dashboard","target":"brain_core_brain_functions_dashboard_context_command_centre_interface","rel":"relates to","conf":"EXTRACTED"},{"source":"green_orb","target":"brain_punch_in_dashboard_dashboard_ui_and_parameters_jarvis_orb","rel":"relates to","conf":"EXTRACTED"},{"source":"green_orb","target":"brain_punch_in_dashboard_punch_in_dashboard_lively_wallpaper","rel":"relates to","conf":"EXTRACTED"},{"source":"future_plans","target":"brain_core_brain_functions_recommended_next_integrations","rel":"relates to","conf":"EXTRACTED"},{"source":"future_plans","target":"brain_core_brain_functions_safety_rules_explicit_confirmation","rel":"relates to","conf":"EXTRACTED"},{"source":"brain_jarvis_brain","target":"brain_agentic_os_agentic_os","rel":"indexes","conf":"EXTRACTED"},{"source":"brain_agentic_os_agentic_os","target":"jarvis_os_dashboard","rel":"contains","conf":"EXTRACTED"},{"source":"brain_agentic_os_agentic_os","target":"brain_agentic_os_jarvis_black_hole","rel":"contains","conf":"EXTRACTED"},{"source":"brain_agentic_os_agentic_os","target":"brain_agentic_os_jarvis_brain_3d","rel":"contains","conf":"EXTRACTED"},{"source":"brain_agentic_os_agentic_os","target":"brain_agentic_os_agentic_os_change_log","rel":"logs changes in","conf":"EXTRACTED"},{"source":"brain_agentic_os_agentic_os","target":"future_plans","rel":"roadmap","conf":"EXTRACTED"},{"source":"brain_agentic_os_agentic_os_change_log","target":"brain_punch_in_dashboard_dashboard_change_log","rel":"split from","conf":"EXTRACTED"},{"source":"brain_agentic_os_jarvis_black_hole","target":"gravity_lights","rel":"contains","conf":"EXTRACTED"},{"source":"brain_agentic_os_jarvis_black_hole","target":"rtx_edge_window","rel":"runs in","conf":"EXTRACTED"},{"source":"brain_agentic_os_jarvis_black_hole","target":"green_orb","rel":"candidate replacement for","conf":"EXTRACTED"},{"source":"brain_agentic_os_jarvis_brain_3d","target":"jarvis_os_dashboard","rel":"opened from","conf":"EXTRACTED"},{"source":"brain_agentic_os_jarvis_brain_3d","target":"brain_jarvis_brain","rel":"maps","conf":"EXTRACTED"},{"source":"brain_agentic_os_agentic_os","target":"rtx_edge_window","rel":"uses","conf":"EXTRACTED"}],"lobes":[{"id":0,"name":"Future Integrations & Research","region":"Left frontal lobe","color":"#c084fc","anchor":[110,25,-45]},{"id":1,"name":"Jarvis Core System","region":"Left parietal lobe","color":"#ff7a18","anchor":[10,70,-40]},{"id":2,"name":"Reliability & Maintenance","region":"Brainstem","color":"#22d3ee","anchor":[-80,-70,-25]},{"id":3,"name":"Safety & Voice Privacy","region":"Left temporal lobe","color":"#f43f5e","anchor":[30,-30,-75]},{"id":4,"name":"Kayden & Jobs","region":"Right temporal lobe","color":"#facc15","anchor":[30,-30,75]},{"id":5,"name":"Dashboard Data Sync","region":"Right occipital lobe","color":"#34d399","anchor":[-110,20,40]},{"id":6,"name":"Dashboard Display Files","region":"Left occipital lobe","color":"#60a5fa","anchor":[-110,20,-40]},{"id":7,"name":"Claude Code Tooling","region":"Right frontal lobe","color":"#e879f9","anchor":[110,25,45]},{"id":8,"name":"Logs & Change Tracking","region":"Cerebellum","color":"#a3e635","anchor":[-80,-70,25]},{"id":9,"name":"Dashboard UI Widgets","region":"Right parietal lobe","color":"#818cf8","anchor":[10,70,40]}]}</script>
+<script type="module">
+const DATA = JSON.parse(document.getElementById('brain-data').textContent);
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// One matched spectrum for the ten lobes; amber stays with Jarvis Core.
+const PALETTE = { 0: '#c792ff', 1: '#ffb547', 2: '#5cd2ff', 3: '#ff6f91', 4: '#d8f06e', 5: '#52f0c9', 6: '#6f9bff', 7: '#ff82de', 8: '#7cf08e', 9: '#a293ff' };
+const REGION_ORDER = ['Left frontal lobe', 'Right frontal lobe', 'Left parietal lobe', 'Right parietal lobe', 'Left temporal lobe', 'Right temporal lobe', 'Left occipital lobe', 'Right occipital lobe', 'Cerebellum', 'Brainstem'];
+
+const nodes = DATA.nodes.map((n, i) => ({ ...n, i, color: PALETTE[n.community] ?? '#8be9ff' }));
+const byId = new Map(nodes.map(n => [n.id, n]));
+const lobes = DATA.lobes
+  .map(l => ({ ...l, color: PALETTE[l.id] ?? l.color, nodes: nodes.filter(n => n.community === l.id) }))
+  .sort((a, b) => REGION_ORDER.indexOf(a.region) - REGION_ORDER.indexOf(b.region));
+const lobeById = new Map(lobes.map(l => [l.id, l]));
+const links = DATA.links.map((l, i) => ({ ...l, i, s: byId.get(l.source), t: byId.get(l.target) })).filter(l => l.s && l.t);
+const adj = new Map(nodes.map(n => [n.id, []]));
+links.forEach(l => {
+  adj.get(l.s.id).push({ other: l.t, link: l, out: true });
+  adj.get(l.t.id).push({ other: l.s, link: l, out: false });
+});
+adj.forEach(list => list.sort((a, b) => (a.link.conf === 'EXTRACTED' ? 0 : 1) - (b.link.conf === 'EXTRACTED' ? 0 : 1) || a.other.label.localeCompare(b.other.label)));
+
+// ---------- HUD ----------
+const ui = { selected: null, lobe: null, hover: null };
+let view = { update() {}, frameNode() {}, frameLobe() {}, reset() {} };
+
+$('#t-nodes').textContent = nodes.length;
+$('#t-links').textContent = links.length;
+$('#t-inf').textContent = links.filter(l => l.conf !== 'EXTRACTED').length;
+$('#t-lobes').textContent = lobes.length;
+$('#q').placeholder = `Search ${nodes.length} neurons`;
+
+const clockTime = $('#clock-time'), clockDate = $('#clock-date');
+function tick() {
+  const d = new Date();
+  clockTime.textContent = d.toLocaleTimeString('en-GB', { hour12: false });
+  clockDate.textContent = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: '2-digit' }).replace(/,/g, '').toUpperCase();
+}
+tick(); setInterval(tick, 1000);
+
+const lobeList = $('#lobes');
+lobeList.innerHTML = lobes.map(l => `
+  <li><button class="lobe" type="button" data-lobe="${l.id}" style="--c:${l.color}" aria-pressed="false">
+    <i class="dot"></i><span class="n">${esc(l.name)}</span><span class="k">${l.nodes.length}</span><span class="r">${esc(l.region)}</span>
+  </button></li>`).join('');
+lobeList.addEventListener('click', e => { const b = e.target.closest('[data-lobe]'); if (b) isolate(+b.dataset.lobe); });
+$('#all').addEventListener('click', () => clearAll());
+$('#close').addEventListener('click', () => clearAll());
+
+function syncLobes() {
+  lobeList.classList.toggle('isolating', ui.lobe !== null);
+  lobeList.querySelectorAll('.lobe').forEach(b => {
+    const on = +b.dataset.lobe === ui.lobe;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-pressed', on);
+  });
+  $('#all').hidden = ui.lobe === null;
+}
+
+const row = (n, second, cls = '') => `<li><button class="row ${cls}" type="button" data-id="${esc(n.id)}"><i class="dot" style="--c:${n.color}"></i><span class="lbl">${esc(n.label)}</span>${second}</button></li>`;
+
+function renderDetail() {
+  const panel = $('#detail'), body = $('#detail-body');
+  const open = !!ui.selected || ui.lobe !== null;
+  panel.hidden = !open;
+  document.body.classList.toggle('has-detail', open);
+  if (!open) return;
+  if (ui.selected) {
+    const n = ui.selected, L = lobeById.get(n.community), conns = adj.get(n.id);
+    const inferred = conns.filter(c => c.link.conf !== 'EXTRACTED').length;
+    const obsidian = `obsidian://open?vault=${encodeURIComponent('Kaydens Vault')}&file=${encodeURIComponent(n.file)}`;
+    body.innerHTML = `
+      ${ui.lobe !== null ? `<button class="d-back" type="button" data-back>← ${esc(lobeById.get(ui.lobe).name)}</button>` : ''}
+      <div class="d-eyebrow"><i class="dot" style="--c:${L.color}"></i><span>${esc(L.name)} · ${esc(n.region)}</span></div>
+      <h2 class="d-title">${esc(n.label)}</h2>
+      <span class="d-kind${n.hub ? ' hub' : ''}">${n.hub ? 'Brain note' : 'Neuron'}</span>
+      ${n.summary ? `<p class="d-sum">${esc(n.summary)}</p>` : ''}
+      ${n.why ? `<div class="d-why"><span>Why</span>${esc(n.why)}</div>` : ''}
+      <p class="d-meta">${esc(n.source)}</p>
+      <a class="d-open" href="${obsidian}">Open in Obsidian <span aria-hidden="true">↗</span></a>
+      <div class="eyebrow"><span>Synapses</span><span>${conns.length}${inferred ? ` · ${inferred} inferred` : ''}</span></div>
+      <ul class="d-list">${conns.map(c => row(c.other, `<span class="rel">${c.out ? `${esc(c.link.rel)} →` : `← ${esc(c.link.rel)}`}${c.link.conf !== 'EXTRACTED' ? ' · inferred' : ''}</span>`)).join('')}</ul>`;
+  } else {
+    const L = lobeById.get(ui.lobe);
+    const hubs = L.nodes.filter(n => n.hub), rest = L.nodes.filter(n => !n.hub);
+    const inside = links.filter(l => l.s.community === L.id && l.t.community === L.id).length;
+    const cross = links.filter(l => (l.s.community === L.id) !== (l.t.community === L.id)).length;
+    body.innerHTML = `
+      <div class="d-eyebrow"><i class="dot" style="--c:${L.color}"></i><span>Lobe · ${esc(L.region)}</span></div>
+      <h2 class="d-title">${esc(L.name)}</h2>
+      <dl class="d-stats"><div><dt>Neurons</dt><dd>${L.nodes.length}</dd></div><div><dt>Inside</dt><dd>${inside}</dd></div><div><dt>Cross-lobe</dt><dd>${cross}</dd></div></dl>
+      ${hubs.length ? `<div class="eyebrow"><span>Brain notes</span><span>${hubs.length}</span></div><ul class="d-list">${hubs.map(n => row(n, n.summary ? `<span class="sub2">${esc(n.summary)}</span>` : '')).join('')}</ul>` : ''}
+      ${rest.length ? `<div class="eyebrow"><span>Neurons</span><span>${rest.length}</span></div><ul class="d-list">${rest.map(n => row(n, n.summary ? `<span class="sub2">${esc(n.summary)}</span>` : '')).join('')}</ul>` : ''}`;
+  }
+  panel.scrollTop = 0;
+}
+$('#detail-body').addEventListener('click', e => {
+  if (e.target.closest('[data-back]')) return back();
+  const b = e.target.closest('[data-id]');
+  if (b) select(byId.get(b.dataset.id));
+});
+
+function select(n) {
+  if (!n) return;
+  ui.selected = n;
+  renderDetail(); view.update(); view.frameNode(n);
+}
+function isolate(id) {
+  ui.lobe = ui.lobe === id ? null : id;
+  ui.selected = null;
+  syncLobes(); renderDetail(); view.update();
+  if (ui.lobe !== null) view.frameLobe(lobeById.get(ui.lobe)); else view.reset();
+}
+function clearAll() {
+  ui.selected = null; ui.lobe = null;
+  syncLobes(); renderDetail(); view.update(); view.reset();
+}
+function back() {
+  if (ui.selected && ui.lobe !== null) { ui.selected = null; renderDetail(); view.update(); view.frameLobe(lobeById.get(ui.lobe)); }
+  else if (ui.selected || ui.lobe !== null) clearAll();
+}
+
+// Search
+const q = $('#q'), results = $('#results');
+let hits = [], active = 0;
+function renderResults() {
+  results.hidden = false;
+  results.innerHTML = hits.length
+    ? hits.map((n, i) => row(n, `<span class="rel">${esc(lobeById.get(n.community).name)}</span>`, i === active ? 'active' : '')).join('')
+    : `<li class="empty">No neuron matches “${esc(q.value.trim())}”</li>`;
+}
+q.addEventListener('input', () => {
+  const s = q.value.trim().toLowerCase();
+  if (!s) { hits = []; results.hidden = true; return; }
+  const byLabel = nodes.filter(n => n.label.toLowerCase().includes(s));
+  const bySummary = nodes.filter(n => !byLabel.includes(n) && (n.summary || '').toLowerCase().includes(s));
+  hits = [...byLabel, ...bySummary].slice(0, 7); active = 0;
+  renderResults();
+});
+q.addEventListener('keydown', e => {
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    if (!hits.length) return;
+    e.preventDefault();
+    active = (active + (e.key === 'ArrowDown' ? 1 : hits.length - 1)) % hits.length;
+    renderResults();
+  } else if (e.key === 'Enter') {
+    if (hits[active]) pick(hits[active]);
+  } else if (e.key === 'Escape') {
+    e.stopPropagation();
+    if (q.value) { q.value = ''; hits = []; results.hidden = true; } else q.blur();
+  }
+});
+results.addEventListener('mousedown', e => e.preventDefault());
+results.addEventListener('click', e => { const b = e.target.closest('[data-id]'); if (b) pick(byId.get(b.dataset.id)); });
+q.addEventListener('blur', () => setTimeout(() => { results.hidden = true; }, 120));
+q.addEventListener('focus', () => { if (q.value.trim()) renderResults(); });
+function pick(n) { q.value = ''; hits = []; results.hidden = true; q.blur(); select(n); }
+
+addEventListener('keydown', e => {
+  const typing = /INPUT|TEXTAREA/.test(document.activeElement?.tagName);
+  if (e.key === '/' && !typing) { e.preventDefault(); q.focus(); }
+  else if (e.key === 'Escape' && !typing) back();
+});
+
+// ---------- 3D ----------
+function mulberry(a) {
+  return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+}
+function randDir(R) {
+  const z = R() * 2 - 1, a = R() * Math.PI * 2, r = Math.sqrt(1 - z * z);
+  return [r * Math.cos(a), r * Math.sin(a), z];
+}
+const unit = v => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / l, v[1] / l, v[2] / l]; };
+
+// Brain volume: two cerebral hemispheres plus the cerebellum. x = front, y = up, z = right.
+const HEMI = { a: 188, b: 118, bLow: 87, c: 74, cy: 8, cz: 70 };
+const CBL = { x: -128, y: -80, a: 64, b: 42, c: 108 };
+function containment(p) {
+  const hb = p.y < HEMI.cy ? HEMI.bLow : HEMI.b;
+  const parts = [
+    { c: [0, HEMI.cy, -HEMI.cz], v: (p.x / HEMI.a) ** 2 + ((p.y - HEMI.cy) / hb) ** 2 + ((p.z + HEMI.cz) / HEMI.c) ** 2 },
+    { c: [0, HEMI.cy, HEMI.cz], v: (p.x / HEMI.a) ** 2 + ((p.y - HEMI.cy) / hb) ** 2 + ((p.z - HEMI.cz) / HEMI.c) ** 2 },
+    { c: [CBL.x, CBL.y, 0], v: ((p.x - CBL.x) / CBL.a) ** 2 + ((p.y - CBL.y) / CBL.b) ** 2 + (p.z / CBL.c) ** 2 },
+  ];
+  return parts.reduce((m, q) => q.v < m.v ? q : m);
+}
+
+function layout() {
+  const R = mulberry(20260925), S = 1.35;
+  const deg = new Map(nodes.map(n => [n.id, 0]));
+  links.forEach(l => { deg.set(l.s.id, deg.get(l.s.id) + 1); deg.set(l.t.id, deg.get(l.t.id) + 1); });
+  const anchor = n => (lobeById.get(n.community)?.anchor || [0, 0, 0]).map(v => v * S);
+  nodes.forEach(n => {
+    const a = anchor(n);
+    n.x = a[0] + (R() - .5) * 50; n.y = a[1] + (R() - .5) * 50; n.z = a[2] + (R() - .5) * 50;
+    n.vx = n.vy = n.vz = 0;
+  });
+  let alpha = 1;
+  const decay = 1 - Math.pow(0.001, 1 / 300);
+  for (let k = 0; k < 320; k++) {
+    alpha += -alpha * decay;
+    for (const l of links) {
+      const s = l.s, t = l.t;
+      let dx = t.x + t.vx - s.x - s.vx, dy = t.y + t.vy - s.y - s.vy, dz = t.z + t.vz - s.z - s.vz;
+      const d = Math.hypot(dx, dy, dz) || 1e-6;
+      const f = (d - (s.community === t.community ? 20 : 62)) / d * alpha * 0.25;
+      dx *= f; dy *= f; dz *= f;
+      const b = deg.get(s.id) / (deg.get(s.id) + deg.get(t.id));
+      t.vx -= dx * b; t.vy -= dy * b; t.vz -= dz * b;
+      s.vx += dx * (1 - b); s.vy += dy * (1 - b); s.vz += dz * (1 - b);
+    }
+    for (let i = 0; i < nodes.length; i++) {
+      const a = nodes[i];
+      for (let j = i + 1; j < nodes.length; j++) {
+        const b = nodes[j];
+        const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
+        const w = -40 * alpha / Math.max(1, dx * dx + dy * dy + dz * dz);
+        a.vx += dx * w; a.vy += dy * w; a.vz += dz * w;
+        b.vx -= dx * w; b.vy -= dy * w; b.vz -= dz * w;
+      }
+    }
+    for (const n of nodes) {
+      const a = anchor(n);
+      n.vx += (a[0] - n.x) * 0.09 * alpha; n.vy += (a[1] - n.y) * 0.09 * alpha; n.vz += (a[2] - n.z) * 0.09 * alpha;
+      n.vx *= 0.6; n.vy *= 0.6; n.vz *= 0.6;
+      n.x += n.vx; n.y += n.vy; n.z += n.vz;
+    }
+  }
+  // Keep every neuron inside the brain surface.
+  for (const n of nodes) {
+    const part = containment(n);
+    if (part.v > 0.78) {
+      const k = Math.sqrt(0.78 / part.v);
+      n.x = part.c[0] + (n.x - part.c[0]) * k; n.y = part.c[1] + (n.y - part.c[1]) * k; n.z = part.c[2] + (n.z - part.c[2]) * k;
+    }
+  }
+}
+
+function buildShell(count) {
+  const R = mulberry(7);
+  const waves = Array.from({ length: 10 }, () => { const v = randDir(R), f = 4.5 + R() * 4.5; return [v[0] * f, v[1] * f, v[2] * f, R() * Math.PI * 2]; });
+  const fold = (x, y, z) => { let s = 0; for (const w of waves) s += Math.sin(w[0] * x + w[1] * y + w[2] * z + w[3]); return s * 0.42; };
+  const pos = [], nrm = [], rid = [], seed = [];
+  const push = (p, n, r) => { pos.push(p[0], p[1], p[2]); nrm.push(n[0], n[1], n[2]); rid.push(r); seed.push(R()); };
+  let made = 0, guard = 0;
+  while (made < count && guard++ < count * 4) {
+    const u = R();
+    if (u < 0.8) {
+      const side = R() < 0.5 ? -1 : 1;
+      const d = randDir(R);
+      if (d[2] * side < -0.5 && R() > 0.12) continue; // keep the medial wall sparse so the fissure reads
+      const { a, b, bLow, c, cy, cz } = HEMI;
+      let x = d[0] * a;
+      let y = d[1] * (d[1] < 0 ? bLow : b);
+      let z = d[2] * c * (1 - 0.14 * Math.max(0, d[0]) ** 2);
+      const lateral = Math.max(0, d[2] * side);
+      const temporal = Math.exp(-(((d[0] - 0.15) / 0.35) ** 2)) * Math.max(0, -d[1]) * lateral;
+      y -= temporal * 22; z += side * temporal * 10;
+      const ridge = 1 - Math.abs(Math.sin(fold(d[0], d[1], d[2]) * 2.2));
+      const n = unit([d[0] / a, d[1] / b, d[2] / c]);
+      const disp = (ridge - 0.5) * 7;
+      push([x + n[0] * disp, y + cy + n[1] * disp, z + side * cz + n[2] * disp], n, ridge ** 2.2);
+    } else if (u < 0.94) {
+      const d = randDir(R);
+      if (d[1] > 0.55) continue;
+      const folia = 1 - Math.abs(Math.sin((d[1] * 9 + fold(d[0], d[1], d[2]) * 0.15) * Math.PI));
+      const n = unit([d[0] / CBL.a, d[1] / CBL.b, d[2] / CBL.c]);
+      const disp = (folia - 0.5) * 4;
+      push([CBL.x + d[0] * CBL.a + n[0] * disp, CBL.y + d[1] * CBL.b + n[1] * disp, d[2] * CBL.c + n[2] * disp], n, folia ** 2.5);
+    } else {
+      const h = R(), ang = R() * Math.PI * 2, r = 26 - h * 9;
+      push([-60 - h * 20 + Math.cos(ang) * r, -70 - h * 122, Math.sin(ang) * r], unit([Math.cos(ang), 0.1, Math.sin(ang)]), (1 - Math.abs(Math.sin(h * 18))) ** 3 * 0.6);
+    }
+    made++;
+  }
+  return { pos: new Float32Array(pos), nrm: new Float32Array(nrm), rid: new Float32Array(rid), seed: new Float32Array(seed) };
+}
+
+async function start3D() {
+  let THREE, OrbitControls, EffectComposer, RenderPass, UnrealBloomPass, OutputPass;
+  try {
+    THREE = await import('three');
+    [{ OrbitControls }, { EffectComposer }, { RenderPass }, { UnrealBloomPass }, { OutputPass }] = await Promise.all([
+      import('three/addons/controls/OrbitControls.js'),
+      import('three/addons/postprocessing/EffectComposer.js'),
+      import('three/addons/postprocessing/RenderPass.js'),
+      import('three/addons/postprocessing/UnrealBloomPass.js'),
+      import('three/addons/postprocessing/OutputPass.js'),
+    ]);
+  } catch (e) { console.warn('3D libraries unavailable', e); $('#gl-error').hidden = false; return; }
+
+  const canvas = $('#gl');
+  let renderer;
+  try { renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' }); }
+  catch (e) { console.warn('WebGL unavailable', e); $('#gl-error').hidden = false; return; }
+
+  const small = Math.min(innerWidth, innerHeight) < 600;
+  const DPR = Math.min(devicePixelRatio || 1, 2);
+  renderer.setPixelRatio(DPR);
+  renderer.setClearColor(0x03060b, 1);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, 1, 6000);
+  const U = {
+    uTime: { value: 0 }, uScale: { value: 1 }, uRes: { value: new THREE.Vector2(1, 1) },
+    uScan: { value: -1e4 }, uFocus: { value: 1 }, uWidth: { value: 1.35 * DPR }, uMaxPt: { value: 64 * DPR }, uDpr: { value: DPR },
+    uHolo: { value: new THREE.Color('#5fd6ff') }, uHolo2: { value: new THREE.Color('#e4fbff') }, uAmber: { value: new THREE.Color('#ffb547') },
+  };
+  const additive = { transparent: true, depthWrite: false, blending: THREE.AdditiveBlending };
+
+  layout();
+  const N = nodes.length;
+  const nodeVec = nodes.map(n => new THREE.Vector3(n.x, n.y, n.z));
+
+  // Holographic brain shell
+  const shell = buildShell(small ? 15000 : 26000);
+  const shellGeo = new THREE.BufferGeometry();
+  shellGeo.setAttribute('position', new THREE.BufferAttribute(shell.pos, 3));
+  shellGeo.setAttribute('aNrm', new THREE.BufferAttribute(shell.nrm, 3));
+  shellGeo.setAttribute('aRidge', new THREE.BufferAttribute(shell.rid, 1));
+  shellGeo.setAttribute('aSeed', new THREE.BufferAttribute(shell.seed, 1));
+  const shellMat = new THREE.ShaderMaterial({
+    ...additive, uniforms: U,
+    vertexShader: `
+      uniform float uTime, uScale, uScan, uFocus, uDpr; uniform vec3 uHolo, uHolo2;
+      attribute vec3 aNrm; attribute float aRidge, aSeed;
+      varying vec3 vC; varying float vB;
+      void main() {
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        vec3 n = normalize(normalMatrix * aNrm);
+        float rim = 1.0 - abs(dot(n, normalize(-mv.xyz)));
+        float band = exp(-pow((position.y - uScan) / 5.0, 2.0));
+        float trail = position.y < uScan ? exp(-(uScan - position.y) / 26.0) * 0.45 : 0.0;
+        float tw = 0.72 + 0.28 * sin(uTime * (1.2 + aSeed * 2.4) + aSeed * 40.0);
+        vB = ((0.055 + 0.36 * aRidge + 0.7 * pow(rim, 2.6)) * tw + (band * 1.7 + trail) * (0.35 + aRidge)) * uFocus;
+        vC = mix(uHolo, uHolo2, clamp(aRidge * 0.55 + band * 0.6, 0.0, 1.0));
+        gl_Position = projectionMatrix * mv;
+        gl_PointSize = min((1.15 + aRidge * 1.25 + band * 1.6) * uScale / -mv.z, 5.0 * uDpr);
+      }`,
+    fragmentShader: `
+      varying vec3 vC; varying float vB;
+      void main() {
+        float d = length(gl_PointCoord * 2.0 - 1.0);
+        if (d > 1.0) discard;
+        gl_FragColor = vec4(vC * vB * smoothstep(1.0, 0.1, d), 1.0);
+      }`,
+  });
+  const brain = new THREE.Group();
+  scene.add(brain);
+  brain.add(new THREE.Points(shellGeo, shellMat));
+
+  // Neurons
+  const nPos = new Float32Array(N * 3), nCol = new Float32Array(N * 3), nSize = new Float32Array(N), nHub = new Float32Array(N);
+  const nState = new Float32Array(N).fill(1), nFlash = new Float32Array(N).fill(-99);
+  nodes.forEach((n, i) => {
+    nPos.set([n.x, n.y, n.z], i * 3);
+    const c = new THREE.Color(n.color); nCol.set([c.r, c.g, c.b], i * 3);
+    nSize[i] = n.hub ? 26 + n.deg * 1.0 : 13 + n.deg * 1.1;
+    nHub[i] = n.hub ? 1 : 0;
+  });
+  const nGeo = new THREE.BufferGeometry();
+  nGeo.setAttribute('position', new THREE.BufferAttribute(nPos, 3));
+  nGeo.setAttribute('aColor', new THREE.BufferAttribute(nCol, 3));
+  nGeo.setAttribute('aSize', new THREE.BufferAttribute(nSize, 1));
+  nGeo.setAttribute('aHub', new THREE.BufferAttribute(nHub, 1));
+  const stateAttr = new THREE.BufferAttribute(nState, 1), flashAttr = new THREE.BufferAttribute(nFlash, 1);
+  nGeo.setAttribute('aState', stateAttr);
+  nGeo.setAttribute('aFlash', flashAttr);
+  const nMat = new THREE.ShaderMaterial({
+    ...additive, uniforms: U,
+    vertexShader: `
+      uniform float uTime, uScale, uMaxPt;
+      attribute vec3 aColor; attribute float aSize, aHub, aState, aFlash;
+      varying vec3 vColor; varying float vHub, vA, vFlash, vSel;
+      void main() {
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        gl_Position = projectionMatrix * mv;
+        float f = clamp(1.0 - (uTime - aFlash) / 0.7, 0.0, 1.0);
+        vFlash = f * f;
+        vSel = step(2.5, aState);
+        float grow = 1.0 + vFlash * 0.45 + step(1.5, aState) * 0.12 + vSel * 0.3;
+        gl_PointSize = min(aSize * grow * uScale / -mv.z, uMaxPt * (1.0 + vSel * 0.3));
+        vColor = aColor; vHub = aHub;
+        vA = aState < 0.5 ? 0.13 : 1.0;
+      }`,
+    fragmentShader: `
+      uniform vec3 uAmber;
+      varying vec3 vColor; varying float vHub, vA, vFlash, vSel;
+      void main() {
+        float d = length(gl_PointCoord * 2.0 - 1.0);
+        if (d > 1.0) discard;
+        float core = smoothstep(0.28, 0.08, d);
+        float halo = exp(-d * d * 7.5) * 0.55;
+        float ring = vHub * smoothstep(0.05, 0.0, abs(d - 0.6)) * 0.85;
+        float sel = vSel * smoothstep(0.045, 0.0, abs(d - 0.84));
+        vec3 hot = mix(vColor, vec3(1.0), 0.72);
+        vec3 col = vColor * (halo + ring) + hot * core * 1.3 + uAmber * sel * 1.2 + vec3(1.0) * vFlash * (core + halo * 0.8);
+        gl_FragColor = vec4(col * vA, 1.0);
+      }`,
+  });
+  brain.add(new THREE.Points(nGeo, nMat));
+
+  // Synapses: curved ribbons expanded in screen space so width stays crisp at any zoom.
+  const SEG = 14, CENTER = new THREE.Vector3(0, -15, 0);
+  const VPL = SEG * 4;
+  const V = links.length * VPL;
+  const A = new Float32Array(V * 3), B = new Float32Array(V * 3), END = new Float32Array(V), SIDE = new Float32Array(V), T = new Float32Array(V);
+  const COL = new Float32Array(V * 3), LEN = new Float32Array(V), CONF = new Float32Array(V), VIS = new Float32Array(V).fill(1), HL = new Float32Array(V), FIRE = new Float32Array(V * 2);
+  for (let v = 0; v < V; v++) FIRE[v * 2] = -99;
+  const idx = [];
+  const tmp = new THREE.Vector3();
+  links.forEach((l, li) => {
+    const s = nodeVec[l.s.i], t = nodeVec[l.t.i];
+    const len = s.distanceTo(t);
+    const mid = s.clone().add(t).multiplyScalar(0.5);
+    const off = mid.clone().sub(CENTER); if (off.lengthSq() < 1) off.set(0, 1, 0);
+    const ctrl = mid.add(off.normalize().multiplyScalar(len * 0.18));
+    const pts = [];
+    for (let k = 0; k <= SEG; k++) {
+      const u = k / SEG, w0 = (1 - u) ** 2, w1 = 2 * (1 - u) * u, w2 = u * u;
+      pts.push(new THREE.Vector3(s.x * w0 + ctrl.x * w1 + t.x * w2, s.y * w0 + ctrl.y * w1 + t.y * w2, s.z * w0 + ctrl.z * w1 + t.z * w2));
+    }
+    let arc = 0; for (let k = 0; k < SEG; k++) arc += pts[k].distanceTo(pts[k + 1]);
+    const cs = new THREE.Color(l.s.color), ct = new THREE.Color(l.t.color);
+    l.v0 = li * VPL;
+    for (let k = 0; k < SEG; k++) {
+      const base = l.v0 + k * 4;
+      for (let q = 0; q < 4; q++) {
+        const v = base + q, end = q >> 1, side = q & 1 ? 1 : -1, u = (k + end) / SEG;
+        A.set([pts[k].x, pts[k].y, pts[k].z], v * 3);
+        B.set([pts[k + 1].x, pts[k + 1].y, pts[k + 1].z], v * 3);
+        END[v] = end; SIDE[v] = side; T[v] = u; LEN[v] = arc; CONF[v] = l.conf === 'EXTRACTED' ? 1 : 0;
+        tmp.set(cs.r + (ct.r - cs.r) * u, cs.g + (ct.g - cs.g) * u, cs.b + (ct.b - cs.b) * u);
+        COL.set([tmp.x, tmp.y, tmp.z], v * 3);
+      }
+      idx.push(base, base + 1, base + 2, base + 2, base + 1, base + 3);
+    }
+  });
+  const lGeo = new THREE.BufferGeometry();
+  lGeo.setAttribute('position', new THREE.BufferAttribute(A, 3));
+  lGeo.setAttribute('aB', new THREE.BufferAttribute(B, 3));
+  lGeo.setAttribute('aEnd', new THREE.BufferAttribute(END, 1));
+  lGeo.setAttribute('aSide', new THREE.BufferAttribute(SIDE, 1));
+  lGeo.setAttribute('aT', new THREE.BufferAttribute(T, 1));
+  lGeo.setAttribute('aColor', new THREE.BufferAttribute(COL, 3));
+  lGeo.setAttribute('aLen', new THREE.BufferAttribute(LEN, 1));
+  lGeo.setAttribute('aConf', new THREE.BufferAttribute(CONF, 1));
+  const visAttr = new THREE.BufferAttribute(VIS, 1), hlAttr = new THREE.BufferAttribute(HL, 1), fireAttr = new THREE.BufferAttribute(FIRE, 2);
+  lGeo.setAttribute('aVis', visAttr);
+  lGeo.setAttribute('aHl', hlAttr);
+  lGeo.setAttribute('aFire', fireAttr);
+  lGeo.setIndex(idx);
+  const lMat = new THREE.ShaderMaterial({
+    ...additive, uniforms: U,
+    vertexShader: `
+      uniform vec2 uRes; uniform float uWidth;
+      attribute vec3 aB, aColor; attribute float aEnd, aSide, aT, aLen, aConf, aVis, aHl; attribute vec2 aFire;
+      varying vec3 vColor; varying float vT, vSide, vLen, vConf, vVis, vHl; varying vec2 vFire;
+      void main() {
+        vec4 ca = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        vec4 cb = projectionMatrix * modelViewMatrix * vec4(aB, 1.0);
+        vec2 dir = cb.xy / cb.w * uRes - ca.xy / ca.w * uRes;
+        float dl = length(dir);
+        dir = dl > 1e-5 ? dir / dl : vec2(1.0, 0.0);
+        vec4 c = mix(ca, cb, aEnd);
+        float w = uWidth * (abs(aHl) > 0.5 ? 1.7 : 1.0);
+        c.xy += vec2(-dir.y, dir.x) * aSide * w / uRes * c.w;
+        gl_Position = c;
+        vColor = aColor; vT = aT; vSide = aSide; vLen = aLen; vConf = aConf; vVis = aVis; vHl = aHl; vFire = aFire;
+      }`,
+    fragmentShader: `
+      uniform float uTime;
+      varying vec3 vColor; varying float vT, vSide, vLen, vConf, vVis, vHl; varying vec2 vFire;
+      void main() {
+        float edge = 1.0 - smoothstep(0.3, 1.0, abs(vSide));
+        float base = vConf > 0.5 ? 0.17 : 0.13 * step(0.45, fract(vT * vLen / 5.0));
+        float hl = abs(vHl) > 0.5 ? 1.0 : 0.0;
+        base = mix(base, vConf > 0.5 ? 0.6 : 0.42 * step(0.45, fract(vT * vLen / 5.0)), hl);
+        float tt = vHl < -0.5 ? 1.0 - vT : vT;
+        float flow = hl * pow(smoothstep(0.7, 1.0, fract(tt * 2.0 - uTime * 0.85)), 2.0);
+        float head = (uTime - vFire.x) / 0.8;
+        float ft = vFire.y < 0.0 ? 1.0 - vT : vT;
+        float pulse = 0.0;
+        if (head > -0.1 && head < 1.25) {
+          pulse = smoothstep(0.07, 0.0, abs(ft - head)) + step(ft, head) * smoothstep(0.3, 0.0, head - ft) * 0.35;
+          pulse *= 1.0 - smoothstep(0.95, 1.25, head);
+        }
+        float i = (base + flow * 1.3 + pulse * 1.9) * vVis;
+        vec3 col = mix(vColor, vec3(1.0), clamp(pulse * 0.6 + flow * 0.35, 0.0, 1.0));
+        gl_FragColor = vec4(col * i * edge, 1.0);
+      }`,
+  });
+  const linkMesh = new THREE.Mesh(lGeo, lMat);
+  linkMesh.frustumCulled = false;
+  brain.add(linkMesh);
+
+  // Projector base: rings, ticks, sweeping arcs, a soft disc and a faint beam.
+  const holo = new THREE.Color('#8be9ff');
+  const base = new THREE.Group();
+  base.position.y = -236;
+  scene.add(base);
+  const lineMat = o => new THREE.LineBasicMaterial({ color: holo, opacity: o, ...additive });
+  const circle = (r, from = 0, to = Math.PI * 2, n = 192) => new THREE.BufferGeometry().setFromPoints(
+    Array.from({ length: n + 1 }, (_, k) => { const a = from + (to - from) * k / n; return new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r); }));
+  [[118, .2], [186, .12], [248, .3], [262, .09]].forEach(([r, o]) => base.add(new THREE.Line(circle(r), lineMat(o))));
+  const tickPts = [];
+  for (let k = 0; k < 144; k++) {
+    const a = k / 144 * Math.PI * 2, r2 = 248 - (k % 6 === 0 ? 14 : 6);
+    tickPts.push(new THREE.Vector3(Math.cos(a) * 248, 0, Math.sin(a) * 248), new THREE.Vector3(Math.cos(a) * r2, 0, Math.sin(a) * r2));
+  }
+  base.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(tickPts), lineMat(.32)));
+  const arcs = new THREE.Group();
+  arcs.add(new THREE.Line(circle(206, 0, 1.7, 64), lineMat(.55)), new THREE.Line(circle(206, Math.PI, Math.PI + 1.1, 48), lineMat(.55)));
+  const arcs2 = new THREE.Group();
+  arcs2.add(new THREE.Line(circle(152, 0.6, 1.4, 40), lineMat(.4)), new THREE.Line(circle(152, 3.6, 5.2, 64), lineMat(.4)));
+  base.add(arcs, arcs2);
+  const disc = new THREE.Mesh(new THREE.CircleGeometry(280, 96), new THREE.ShaderMaterial({
+    ...additive, uniforms: U,
+    vertexShader: `varying vec2 vP; void main() { vP = position.xy / 280.0; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `uniform vec3 uHolo; varying vec2 vP; void main() { float r = length(vP); gl_FragColor = vec4(uHolo * (pow(1.0 - r, 2.2) * 0.1 + exp(-pow((r - 0.886) / 0.012, 2.0)) * 0.05), 1.0); }`,
+  }));
+  disc.rotation.x = -Math.PI / 2;
+  base.add(disc);
+  const beam = new THREE.Mesh(new THREE.CylinderGeometry(230, 40, 360, 64, 1, true), new THREE.ShaderMaterial({
+    ...additive, side: THREE.DoubleSide, uniforms: U,
+    vertexShader: `varying float vY; varying float vRim; void main() { vY = uv.y; vec4 mv = modelViewMatrix * vec4(position, 1.0); vec3 n = normalize(normalMatrix * normal); vRim = 1.0 - abs(dot(n, normalize(-mv.xyz))); gl_Position = projectionMatrix * mv; }`,
+    fragmentShader: `uniform vec3 uHolo; varying float vY; varying float vRim; void main() { gl_FragColor = vec4(uHolo * pow(1.0 - vY, 1.8) * (0.012 + pow(vRim, 3.0) * 0.05), 1.0); }`,
+  }));
+  beam.position.y = 180;
+  base.add(beam);
+
+  // Dust
+  const DUST = small ? 500 : 1000, dPos = new Float32Array(DUST * 3), dR = mulberry(99);
+  for (let k = 0; k < DUST; k++) { const d = randDir(dR), r = 420 + dR() * 1100; dPos.set([d[0] * r, d[1] * r * 0.7, d[2] * r], k * 3); }
+  const dustGeo = new THREE.BufferGeometry();
+  dustGeo.setAttribute('position', new THREE.BufferAttribute(dPos, 3));
+  const dust = new THREE.Points(dustGeo, new THREE.PointsMaterial({ color: '#7fcfe8', size: 1.6 * DPR, sizeAttenuation: false, opacity: 0.45, ...additive }));
+  scene.add(dust);
+
+  // Post
+  const composer = new EffectComposer(renderer);
+  composer.addPass(new RenderPass(scene, camera));
+  const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.72, 0.42, 0.2);
+  composer.addPass(bloom);
+  composer.addPass(new OutputPass());
+
+  // Camera
+  const HOME = new THREE.Vector3(0, -30, 0);
+  const HOME_DIR = new THREE.Vector3(0.38, 0.2, 1).normalize();
+  const homeDistance = () => {
+    const v = THREE.MathUtils.degToRad(camera.fov) / 2;
+    const h = Math.atan(Math.tan(v) * camera.aspect);
+    return Math.min(1500, 270 / Math.sin(Math.min(v, h)) * 0.94);
+  };
+  const controls = new OrbitControls(camera, canvas);
+  Object.assign(controls, { enableDamping: true, dampingFactor: 0.07, enablePan: false, minDistance: 80, maxDistance: 1600, rotateSpeed: 0.6, zoomSpeed: 0.8, autoRotate: !reduceMotion, autoRotateSpeed: 0.32 });
+  controls.target.copy(HOME);
+  camera.position.copy(HOME).addScaledVector(HOME_DIR, homeDistance() * (reduceMotion ? 1 : 1.9)).add(new THREE.Vector3(0, reduceMotion ? 0 : 260, 0));
+  controls.update();
+
+  let tween = null, idleTimer = 0, userDriving = false;
+  function flyTo(pos, target, dur = 1.35) {
+    if (reduceMotion) { camera.position.copy(pos); controls.target.copy(target); return; }
+    tween = { p0: camera.position.clone(), q0: controls.target.clone(), p1: pos, q1: target, start: performance.now(), dur: dur * 1000 };
+  }
+  const viewDir = () => camera.position.clone().sub(controls.target).normalize();
+  if (!reduceMotion) flyTo(HOME.clone().addScaledVector(HOME_DIR, homeDistance()), HOME.clone(), 2.6);
+  controls.addEventListener('start', () => { tween = null; userDriving = true; controls.autoRotate = false; clearTimeout(idleTimer); canvas.classList.add('dragging'); });
+  controls.addEventListener('end', () => {
+    userDriving = false; canvas.classList.remove('dragging');
+    idleTimer = setTimeout(() => { if (!reduceMotion) controls.autoRotate = true; }, 9000);
+  });
+
+  // State → GPU
+  const labelled = new Map();
+  let labelSet = new Set();
+  function applyState() {
+    const sel = ui.selected, lobe = ui.lobe;
+    const near = sel ? new Set(adj.get(sel.id).map(c => c.other.id)) : null;
+    nodes.forEach((n, i) => { nState[i] = sel ? (n === sel ? 3 : near.has(n.id) ? 2 : 0) : lobe !== null ? (n.community === lobe ? 1 : 0) : 1; });
+    stateAttr.needsUpdate = true;
+    links.forEach(l => {
+      let vis = 1, hl = 0;
+      if (sel) { if (l.s === sel || l.t === sel) hl = l.s === sel ? 1 : -1; else vis = 0.05; }
+      else if (lobe !== null) { const a = l.s.community === lobe, b = l.t.community === lobe; vis = a && b ? 1 : a || b ? 0.35 : 0.04; }
+      VIS.fill(vis, l.v0, l.v0 + VPL); HL.fill(hl, l.v0, l.v0 + VPL);
+    });
+    visAttr.needsUpdate = true; hlAttr.needsUpdate = true;
+    labelSet = new Set(sel ? [sel, ...adj.get(sel.id).map(c => c.other)] : lobe !== null ? lobeById.get(lobe).nodes : nodes.filter(n => n.hub));
+  }
+
+  // Firing: random synapses fire, and some spikes cascade onward from the neuron they reach.
+  let nextFire = 0;
+  const arrivals = [];
+  function fire(l, forward, t, depth) {
+    for (let v = l.v0; v < l.v0 + VPL; v++) { FIRE[v * 2] = t; FIRE[v * 2 + 1] = forward ? 1 : -1; }
+    fireAttr.needsUpdate = true;
+    arrivals.push({ at: t + 0.74, node: forward ? l.t : l.s, from: l, depth });
+  }
+  function firePool() {
+    if (ui.lobe !== null) return links.filter(l => l.s.community === ui.lobe || l.t.community === ui.lobe);
+    return links;
+  }
+
+  view = {
+    update: applyState,
+    frameNode(n) {
+      const p = nodeVec[n.i];
+      flyTo(p.clone().addScaledVector(viewDir(), (n.hub ? 270 : 230) * (camera.aspect < 1 ? 1.35 : 1)), p.clone());
+    },
+    frameLobe(L) {
+      const c = new THREE.Vector3(); L.nodes.forEach(n => c.add(nodeVec[n.i])); c.divideScalar(L.nodes.length);
+      let r = 0; L.nodes.forEach(n => { r = Math.max(r, nodeVec[n.i].distanceTo(c)); });
+      flyTo(c.clone().addScaledVector(viewDir(), Math.max(230, r * 3.2) * (camera.aspect < 1 ? 1.6 : 1)), c);
+    },
+    reset() { flyTo(HOME.clone().addScaledVector(viewDir(), homeDistance()), HOME.clone()); },
+  };
+  applyState();
+
+  // Picking
+  const proj = new THREE.Vector3();
+  const toScreen = (v, out) => { proj.copy(v).project(camera); out.x = (proj.x + 1) / 2 * innerWidth; out.y = (1 - proj.y) / 2 * innerHeight; out.behind = proj.z > 1; return out; };
+  const sizePx = i => Math.min(64, nSize[i] * U.uScale.value / Math.max(1, camera.position.distanceTo(nodeVec[i])) / DPR);
+  const scr = {};
+  function pickAt(x, y) {
+    let best = null, bd = Infinity;
+    for (let i = 0; i < N; i++) {
+      toScreen(nodeVec[i], scr);
+      if (scr.behind) continue;
+      const d = Math.hypot(scr.x - x, scr.y - y), r = Math.max(10, sizePx(i) * 0.3) * (nState[i] < 0.5 ? 0.6 : 1);
+      if (d < r && d < bd) { bd = d; best = nodes[i]; }
+    }
+    return best;
+  }
+  const tip = $('#tip');
+  let down = null, pointer = null;
+  canvas.addEventListener('pointerdown', e => { down = { x: e.clientX, y: e.clientY, t: performance.now() }; });
+  canvas.addEventListener('pointerup', e => {
+    if (!down) return;
+    const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y), quick = performance.now() - down.t < 600;
+    down = null;
+    if (moved > 6 || !quick) return;
+    const n = pickAt(e.clientX, e.clientY);
+    if (n) select(n); else back();
+  });
+  canvas.addEventListener('pointermove', e => { if (e.pointerType === 'mouse') pointer = { x: e.clientX, y: e.clientY }; });
+  canvas.addEventListener('pointerleave', () => { pointer = null; });
+
+  // Overlay: labels, reticle, tooltip
+  const labelsEl = $('#labels'), reticle = $('#reticle');
+  function tagFor(n) {
+    let el = labelled.get(n.id);
+    if (!el) { el = document.createElement('div'); el.className = 'tag3d'; el.textContent = n.label; labelsEl.appendChild(el); labelled.set(n.id, el); }
+    return el;
+  }
+  const camDist = () => camera.position.distanceTo(controls.target);
+  function overlay() {
+    const cd = camDist();
+    const want = new Set(labelSet);
+    if (ui.hover) want.add(ui.hover);
+    const wantIds = new Set([...want].map(n => n.id));
+    labelled.forEach((el, id) => { if (!wantIds.has(id)) el.hidden = true; });
+    // Nearest and most important labels claim space first; anything that would overlap is hidden.
+    const placed = [];
+    const ranked = [...want].map(n => {
+      const d = camera.position.distanceTo(nodeVec[n.i]);
+      return { n, d, p: (n === ui.selected ? 1e5 : 0) + (n === ui.hover ? 5e4 : 0) + (n.hub ? 200 : 0) + n.deg * 4 - d / cd * 120 };
+    }).sort((a, b) => b.p - a.p);
+    for (const { n, d } of ranked) {
+      const el = tagFor(n);
+      toScreen(nodeVec[n.i], scr);
+      if (scr.behind) { el.hidden = true; continue; }
+      const isSel = n === ui.selected;
+      const off = sizePx(n.i) * 0.2 + (isSel ? 16 : 4);
+      const box = { x: scr.x + off, y: scr.y - 8, w: n.label.length * (isSel ? 8.2 : 7.4) + 20, h: 16 };
+      if (placed.some(b => box.x < b.x + b.w && b.x < box.x + box.w && box.y < b.y + b.h && b.y < box.y + box.h)) { el.hidden = true; continue; }
+      placed.push(box);
+      el.hidden = false;
+      const depth = THREE.MathUtils.clamp(1.55 - d / cd, 0.22, 1);
+      el.classList.toggle('sel', isSel);
+      el.style.opacity = isSel || n === ui.hover ? 1 : depth * (n.hub || ui.selected ? 0.9 : 0.7);
+      el.style.transform = `translate3d(${(scr.x + off).toFixed(1)}px, ${(scr.y).toFixed(1)}px, 0) translateY(-50%)`;
+    }
+    if (ui.selected) {
+      toScreen(nodeVec[ui.selected.i], scr);
+      reticle.hidden = scr.behind;
+      const s = THREE.MathUtils.clamp(sizePx(ui.selected.i) * 1.3 / 80, 0.45, 1.8);
+      reticle.style.transform = `translate3d(${scr.x.toFixed(1)}px, ${scr.y.toFixed(1)}px, 0) scale(${s.toFixed(3)})`;
+    } else reticle.hidden = true;
+
+    let hov = null;
+    if (pointer && !userDriving) hov = pickAt(pointer.x, pointer.y);
+    ui.hover = hov;
+    canvas.classList.toggle('pointing', !!hov);
+    if (hov) {
+      tip.hidden = false;
+      tip.innerHTML = `<b>${esc(hov.label)}</b><span>${esc(lobeById.get(hov.community).name)}</span>`;
+      const x = Math.min(pointer.x + 16, innerWidth - tip.offsetWidth - 8), y = Math.min(pointer.y + 16, innerHeight - tip.offsetHeight - 8);
+      tip.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+    } else tip.hidden = true;
+  }
+
+  // Resize
+  let viewShift = 0;
+  function resize() {
+    const w = innerWidth, h = innerHeight;
+    renderer.setSize(w, h, false);
+    composer.setSize(w, h);
+    bloom.resolution.set(w, h);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    const db = renderer.getDrawingBufferSize(new THREE.Vector2());
+    U.uRes.value.copy(db);
+    U.uScale.value = db.y / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
+  }
+  addEventListener('resize', resize);
+  resize();
+
+  // Loop
+  const t0 = performance.now();
+  function frame(now) {
+    const t = (now - t0) / 1000;
+    U.uTime.value = t;
+
+    if (!reduceMotion) {
+      const phase = (t % 10) / 10;
+      U.uScan.value = phase < 0.6 ? -240 + phase / 0.6 * 400 : -1e4;
+    }
+    U.uFocus.value += ((ui.selected || ui.lobe !== null ? 0.5 : 1) - U.uFocus.value) * 0.06;
+
+    if (t > nextFire) {
+      const pool = firePool();
+      if (pool.length) fire(pool[Math.floor(Math.random() * pool.length)], Math.random() < 0.5, t, 0);
+      nextFire = t + (reduceMotion ? 1.4 : 0.1 + Math.random() * 0.14);
+    }
+    for (let k = arrivals.length - 1; k >= 0; k--) {
+      const a = arrivals[k];
+      if (t < a.at) continue;
+      arrivals.splice(k, 1);
+      nFlash[a.node.i] = t; flashAttr.needsUpdate = true;
+      if (a.depth < 2 && Math.random() < 0.45) {
+        const next = adj.get(a.node.id).filter(c => c.link !== a.from);
+        if (next.length) { const c = next[Math.floor(Math.random() * next.length)]; fire(c.link, c.out, t, a.depth + 1); }
+      }
+    }
+
+    if (tween) {
+      const k = Math.min(1, (now - tween.start) / tween.dur);
+      const e = k < 0.5 ? 4 * k * k * k : 1 - (-2 * k + 2) ** 3 / 2;
+      camera.position.lerpVectors(tween.p0, tween.p1, e);
+      controls.target.lerpVectors(tween.q0, tween.q1, e);
+      if (k >= 1) tween = null;
+    }
+
+    // On phones the detail sheet covers the lower half, so lift the focus point.
+    const shiftWant = innerWidth <= 720 && (ui.selected || ui.lobe !== null) ? innerHeight * 0.2 : 0;
+    viewShift += (shiftWant - viewShift) * 0.08;
+    if (Math.abs(viewShift) > 0.5) camera.setViewOffset(innerWidth, innerHeight, 0, viewShift, innerWidth, innerHeight);
+    else if (camera.view?.enabled) camera.clearViewOffset();
+
+    const rotating = controls.autoRotate;
+    if (tween) controls.autoRotate = false;
+    controls.update();
+    controls.autoRotate = rotating;
+
+    arcs.rotation.y = t * 0.12;
+    arcs2.rotation.y = -t * 0.07;
+    dust.rotation.y = t * 0.008;
+
+    composer.render();
+    overlay();
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+}
+
+start3D();
+</script>
