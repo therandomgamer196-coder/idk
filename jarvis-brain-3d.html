@@ -756,6 +756,8 @@ async function start3D() {
   } catch (e) { console.warn('3D libraries unavailable', e); $('#gl-error').hidden = false; $('#res').textContent = ''; return; }
 
   const canvas = $('#gl');
+  canvas.tabIndex = -1;
+  try { window.focus(); canvas.focus({ preventScroll: true }); } catch (e) { /* focus is best effort inside an embed */ }
   let renderer;
   try { renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' }); }
   catch (e) { console.warn('WebGL unavailable', e); $('#gl-error').hidden = false; $('#res').textContent = ''; return; }
@@ -956,7 +958,18 @@ async function start3D() {
         float hazeM = uHaze * smoothstep(-0.05, 0.2, uu) * smoothstep(1.5, 0.8, uu) * smoothstep(0.5, 0.05, abs(vv + 0.14));
         dP += (vec2(vnoise(P * 0.06 + vec2(0.0, t * 6.0)), vnoise(P * 0.06 + vec2(5.2, t * 6.0))) - 0.5) * 5.0 * hazeM;
 
+        float wakeInk = 0.0;
+        if (uBurnOn > 0.001) {    // his wake stirs the ink wash: it swirls around his path and stains, then settles
+          vec2 wuv = (P - uBurnBox.xy) / uBurnBox.zw; float we = 10.0 / uBurnBox.z;
+          wakeInk = texture2D(tBurn, wuv).b;
+          if (wakeInk > 0.002) {
+            float gx = texture2D(tBurn, wuv + vec2(we, 0.0)).b - texture2D(tBurn, wuv - vec2(we, 0.0)).b;
+            float gy = texture2D(tBurn, wuv + vec2(0.0, we)).b - texture2D(tBurn, wuv - vec2(0.0, we)).b;
+            dP += vec2(-gy, gx) * 70.0 + (vec2(vnoise(P * 0.025 + t * 0.6), vnoise(P * 0.025 - t * 0.6 + 4.0)) - 0.5) * 12.0 * min(wakeInk * 3.0, 1.0);
+          }
+        }
         vec3 col = paint(P + dP) * uGain;
+        col *= 1.0 - smoothstep(0.03, 0.5, wakeInk) * (0.18 + 0.3 * fbm3(P * 0.012 + vec2(t * 0.04, 0.0)));
         vec2 fc = (F - uFocusPx) / uScreen.y;
         col *= 1.0 - uPool * exp(-dot(fc, fc) / 0.1);                                 // a darker ink pool behind the brain
         float m1 = fbm(P * 0.0032 + vec2(uWindOff * 0.0022 + t * 0.005, t * 0.002));  // slow ink mist
@@ -969,7 +982,7 @@ async function start3D() {
           float aw = awayAt(P + dP, awayFront);
           float inBand = texture2D(tClean, vec2((P.x + dP.x) / uPaintSize.x, 1.0 - (P.y + dP.y) / uPaintSize.y)).a;
           col *= 1.0 - aw * inBand * 0.22 * smoothstep(0.45, 0.8, fbm(P * 0.009 + vec2(t * 0.05, -t * 0.08)));
-          col += vec3(1.0, 0.72, 0.3) * awayFront * inBand * (0.9 + 0.6 * vnoise(P * 0.3 + t * 3.0));
+          col += vec3(1.0, 0.72, 0.3) * awayFront * inBand * (0.35 + 0.3 * vnoise(P * 0.3 + t * 3.0));
         }
         if (uBurnOn > 0.001) {    // scorched paper: char with a brown ring, embers along the edge, small flames on the hot spots
           vec2 buv = (P - uBurnBox.xy) / uBurnBox.zw;
@@ -1814,10 +1827,10 @@ async function start3D() {
   }
   let spawnAcc = 0;
   const blossomScreen = {};
-  function spawnPetal(layer, t, front) {
+  function spawnPetal(layer, t, front, at) {
     const p = layer.list.find(q => !q.alive);
     if (!p) return;
-    const b = PAINT.blossoms[Math.floor(Math.random() * PAINT.blossoms.length)];
+    const b = at || PAINT.blossoms[Math.floor(Math.random() * PAINT.blossoms.length)];
     paintToScreen(b, blossomScreen);
     Object.assign(p, {
       alive: true, x: blossomScreen.x + (Math.random() - 0.5) * 24 * comp.s, y: blossomScreen.y + (Math.random() - 0.5) * 16 * comp.s,
@@ -1944,7 +1957,7 @@ async function start3D() {
   // While he is in the scroll the 3D body is only a depth proxy lying on his painted pose, so the rings pass behind him.
   const V3 = () => new THREE.Vector3();
   const camF = V3(), camU = V3(), camR = V3(), _a = V3(), _b = V3(), _c = V3(), _d = V3(), _e = V3(), _m4 = new THREE.Matrix4(), _q = new THREE.Quaternion();
-  const PLANE_BEHIND = 340, FLIGHT_SCALE = small ? 0.5 : 0.55;
+  const PLANE_BEHIND = 340, FLIGHT_SCALE = small ? 0.44 : 0.48, FLIGHT_LEN = 1.4;
   function camBasis() { camera.updateMatrixWorld(); camera.matrixWorld.extractBasis(camR, camU, camF); camF.negate(); }
   function screenToWorld(x, y, dist, out) {   // the point `dist` along the view axis under screen pixel (x, y)
     _a.set(x / innerWidth * 2 - 1, 1 - y / innerHeight * 2, 0.5).unproject(camera).sub(camera.position).normalize();
@@ -1987,7 +2000,7 @@ async function start3D() {
   const trail = new Trail(4096);
 
   // -- geometry: every tube-like part (body, legs, claws, spikes, hair) is rebuilt on the CPU each frame into one mesh --
-  const NR = small ? 84 : 120, NS = small ? 18 : 28;
+  const NR = small ? 110 : 160, NS = small ? 18 : 26;
   class TubeSet {
     constructor() { this.nv = 0; this.index = []; }
     add(rings, sides) {
@@ -2118,6 +2131,7 @@ async function start3D() {
   const DU2 = {
     uTime: U.uTime, uCam: { value: V3() }, uKey: { value: V3().set(-0.45, 0.75, 0.5).normalize() }, uFireP: { value: V3() }, uFireI: { value: 0 },
     uHeat: { value: 0 }, uBlack: { value: 0 }, uGoldA: { value: 0 }, uReveal: { value: 1 }, uMistR: { value: -1 }, uMistC: { value: V3() }, uEyeCol: { value: V3().set(1.0, 0.7, 0.2) },
+    uFogD: { value: 1000 }, uFogC: { value: V3().set(0.075, 0.07, 0.064) }, uInkEdge: { value: 0 },
     uHeadEpoch: { value: 0 }, uClipA: { value: new THREE.Vector4(0, 0, 0, -1) }, uClipB: { value: new THREE.Vector4(0, 0, 0, -1) }, uClipAN: { value: V3() }, uClipBN: { value: V3() }, uClipE: { value: new THREE.Vector2(-9, -9) },
   };
   const dragonMat = new THREE.ShaderMaterial({
@@ -2127,7 +2141,7 @@ async function start3D() {
         gl_Position = projectionMatrix * viewMatrix * w; }`,
     fragmentShader: `
       uniform vec3 uCam, uKey, uFireP, uMistC, uEyeCol, uClipAN, uClipBN; uniform vec4 uClipA, uClipB; uniform vec2 uClipE;
-      uniform float uTime, uFireI, uHeat, uBlack, uGoldA, uReveal, uMistR;
+      uniform float uTime, uFireI, uHeat, uBlack, uGoldA, uReveal, uMistR, uFogD, uInkEdge; uniform vec3 uFogC;
       varying vec3 vW, vN; varying vec2 vUv; varying vec4 vAux;
       ${NOISE}
       float scaleCell(vec2 q, out float dome) {
@@ -2148,43 +2162,53 @@ async function start3D() {
         float mistEdge = 0.0;
         if (uMistR > 0.0) { float d = length(vW - uMistC) - uMistR - nz * 70.0; if (d < 0.0) discard; mistEdge = exp(-d / 16.0); }
         vec3 N = normalize(vN) * (gl_FrontFacing ? 1.0 : -1.0), V = normalize(uCam - vW);
-        vec3 base = vec3(0.02, 0.018, 0.017); float gloss = 0.45, h = 0.0, edge = 0.0, dome = 0.5, tip = 0.0;
-        if (part < 0.5 || part > 7.5) {          // scales; the belly carries ivory plates
+        // Painted, not rendered: flat ink, and where light falls the ink thins to dry brush and lets the paper through,
+        // in streaks that run along the body like the painting's own strokes.
+        vec3 inkC = vec3(0.01, 0.009, 0.008), paperC = vec3(0.27, 0.255, 0.23), tint = vec3(1.0);
+        float tone = 0.0, gloss = 0.1, h = 0.0, edge = 0.0, dome = 0.5, tip = 0.0;
+        vec2 bq = vec2(vUv.x * 0.22 + along * 2.0, vUv.y * 6.0);
+        if (part < 0.5 || part > 7.5) {          // scales; the belly carries paler plates
           vec2 q = part < 0.5 ? vec2(vUv.y * 22.0, vUv.x) : vec2(vUv.y * 10.0, vUv.x * 9.0);
-          edge = scaleCell(q, dome); h = smoothstep(0.0, 0.7, dome);
-          float sn = sin(vUv.y * 6.2831853);
-          float belly = part < 0.5 ? smoothstep(-0.55, -0.85, sn) : 0.0;
+          edge = scaleCell(q, dome); h = smoothstep(0.0, 0.7, dome) * 0.6;
+          float belly = part < 0.5 ? smoothstep(-0.55, -0.85, sin(vUv.y * 6.2831853)) : 0.0;
           float plate = smoothstep(0.82, 0.96, fract(vUv.x * 0.55));
-          base = mix(base, vec3(0.13, 0.115, 0.09) * (1.0 - plate * 0.7), belly);
-          edge = mix(edge, plate, belly); h = mix(h, 1.0 - plate, belly); gloss = 0.7;
-        } else if (part < 1.5) { vec2 q = vUv * vec2(26.0, 18.0); edge = scaleCell(q, dome) * 0.6; h = dome * 0.6; gloss = 0.55; }
-        else if (part < 2.5) { base = vec3(0.3, 0.24, 0.15); float g = sin(vUv.x * 70.0); h = g * 0.5; base *= 0.75 + 0.25 * g; gloss = 0.8; tip = vUv.x; }
-        else if (part < 3.5) { base = vec3(0.26, 0.23, 0.19); gloss = 1.0; }
-        else if (part < 4.5) { base = vec3(0.028, 0.025, 0.024); tip = vUv.x; gloss = 0.2; }
+          edge = mix(edge, plate, belly); tone = belly * 0.5 * (1.0 - plate * 0.6);
+        } else if (part < 1.5) { vec2 q = vUv * vec2(26.0, 18.0); edge = scaleCell(q, dome) * 0.6; h = dome * 0.4; bq = vUv * vec2(3.0, 9.0); }
+        else if (part < 2.5) { float g = sin(vUv.x * 70.0); tone = 0.7 * (0.8 + 0.2 * g); tint = vec3(1.1, 0.95, 0.72); h = g * 0.3; tip = vUv.x; gloss = 0.3; }
+        else if (part < 3.5) { tone = 0.85; tint = vec3(1.05, 1.0, 0.88); gloss = 0.35; }
+        else if (part < 4.5) { tip = vUv.x; bq = vec2(vUv.x * 3.0, vUv.y * 4.0 + along * 7.0); }
         else if (part < 5.5) { gl_FragColor = vec4(uEyeCol * 3.2 + vec3(1.0) * 0.4 * pow(max(dot(reflect(-V, N), uKey), 0.0), 30.0), 1.0); return; }
-        else if (part < 6.5) { base = vec3(0.16, 0.02, 0.02); gloss = 0.3; }
-        else { base = vec3(0.03, 0.026, 0.024); tip = vUv.x; gloss = 0.5; }
-        // bump from the scale domes (screen-space derivatives, no tangents needed)
+        else if (part < 6.5) { tone = 0.35; tint = vec3(1.4, 0.3, 0.25); }
+        else { tip = vUv.x; }
         vec3 dpx = dFdx(vW), dpy = dFdy(vW); float dhx = dFdx(h), dhy = dFdy(h);
         vec3 r1 = cross(dpy, N), r2 = cross(N, dpx); float det = dot(dpx, r1);
         vec3 Nb = normalize(abs(det) * N - sign(det) * (dhx * r1 + dhy * r2) * 0.9 * min(length(dpx) * 4.0, 1.0));
         if (dot(Nb, Nb) < 0.5) Nb = N;
         vec3 L = uKey; float wrap = max(dot(Nb, L) * 0.5 + 0.5, 0.0);
-        float spec = pow(max(dot(Nb, normalize(L + V)), 0.0), 42.0) * gloss;
-        float fres = pow(1.0 - max(dot(Nb, V), 0.0), 3.0);
-        vec3 paper = vec3(0.95, 0.9, 0.82);
-        base *= 1.0 - 0.75 * uBlack;
-        vec3 col = base * (0.22 + 0.95 * wrap) * paper + paper * spec * 0.3 * (1.0 - 0.6 * uBlack) + vec3(0.8, 0.74, 0.64) * fres * 0.2 * (1.0 - 0.8 * uBlack);
+        float fres = pow(1.0 - max(dot(Nb, V), 0.0), 2.5);
+        float st = fbm3(bq + vec2(ep * 3.1, 0.0)), st2 = vnoise(vec2(bq.x * 4.0, bq.y * 5.0));
+        // the body's outline breaks up like a dry brush lifting off the paper
+        if ((part < 0.5 || (part > 3.5 && part < 4.5)) && fres > 0.55 && st2 < (fres - 0.55) * 1.5) discard;
+        float dry = smoothstep(0.58, 0.9, wrap * 0.9 + (st - 0.5) * 0.8 + (st2 - 0.5) * 0.35);
+        float lit = max(tone, dry * 0.72);
+        vec3 col = mix(inkC, paperC * tint * (0.55 + 0.45 * wrap), lit);
+        col = mix(col, inkC, edge * 0.75 * lit);                                   // scale arcs drawn in ink over the lit areas
+        col += paperC * smoothstep(0.45, 1.0, fres) * (0.25 + 0.5 * st) * 0.5;     // a soft, broken paper-toned rim
+        col += vec3(0.9, 0.86, 0.8) * pow(max(dot(Nb, normalize(L + V)), 0.0), 30.0) * gloss * 0.35;   // wet-ink sheen
         vec3 Lf = uFireP - vW; float fd = length(Lf);
-        col += (base * 2.5 + 0.03) * vec3(1.0, 0.45, 0.12) * max(dot(Nb, Lf / max(fd, 1.0)), 0.0) * uFireI * 60000.0 / (fd * fd + 12000.0);
+        col += (col * 2.5 + 0.03) * vec3(1.0, 0.45, 0.12) * max(dot(Nb, Lf / max(fd, 1.0)), 0.0) * uFireI * 60000.0 / (fd * fd + 12000.0);
+        col *= 1.0 - 0.7 * uBlack;
         float shim = 0.55 + 0.45 * sin(vUv.x * 0.9 - uTime * 5.0 + vUv.y * 12.0);
         vec3 gold = vec3(1.0, 0.72, 0.3), red = vec3(1.0, 0.1, 0.03);
-        col += gold * uGoldA * (edge * (0.1 + 0.32 * shim) + fres * 0.22 + tip * tip * 0.45);
+        col += gold * uGoldA * (edge * (0.05 + 0.22 * shim) * (0.4 + lit) + fres * 0.14 + tip * tip * 0.35);
         float pulse = 0.75 + 0.25 * sin(uTime * 7.0 - along * 18.0);
         col = mix(col, col * vec3(1.6, 0.5, 0.4), uHeat * 0.5);
-        col += red * uHeat * (edge * 0.9 + fres * 0.8 + 0.06 + tip * tip) * pulse * (1.0 - 0.4 * uBlack);
-        col += red * uBlack * (edge * 1.6 * pulse + pow(fres, 2.0) * 0.9 + tip * tip * 1.5);
-        col += vec3(1.0, 0.78, 0.4) * (revEdge * 3.0 + mistEdge * 2.4);
+        col += red * uHeat * (edge * 0.7 + fres * 0.6 + 0.04 + tip * tip) * pulse * (1.0 - 0.4 * uBlack);
+        col += red * uBlack * (edge * 1.3 * pulse + pow(fres, 2.0) * 0.7 + tip * tip * 1.3);
+        // far away he sinks into the painting's mist
+        col = mix(col, uFogC, smoothstep(uFogD - 200.0, uFogD + 700.0, length(vW - uCam)) * 0.6);
+        col = mix(col, inkC, revEdge * uInkEdge);                                  // soaking back into the paper as ink
+        col += vec3(1.0, 0.78, 0.4) * (revEdge * 3.0 * (1.0 - 0.75 * uInkEdge) + mistEdge * 2.4);
         gl_FragColor = vec4(col, 1.0);
       }`,
   });
@@ -2280,7 +2304,7 @@ async function start3D() {
         col = mix(col, mix(ink, paper * 1.15, yinyang(yp)), inY);
         float fil = pow(1.0 - abs(sin(sw * 3.0 + n * 4.0)), 20.0) * smoothstep(0.25, 0.7, rr);
         vec3 gold = vec3(1.0, 0.72, 0.32);
-        col += gold * (fil * 0.9 + exp(-sq((length(yp) - 1.0) / 0.03)) * 1.4 + exp(-sq((rr - 0.97) / 0.035)) * 2.6);
+        col += gold * (fil * 0.5 + exp(-sq((length(yp) - 1.0) / 0.03)) * 0.8 + exp(-sq((rr - 0.97) / 0.035)) * 1.3);
         float alpha = smoothstep(1.02, 0.9, rr + (n0 - 0.5) * 0.2);
         gl_FragColor = vec4(col, alpha);
       }`,
@@ -2315,7 +2339,7 @@ async function start3D() {
           vec2 c = position.xy; float cr = cos(iK.w), sr = sin(iK.w);
           vec2 rc = vec2(c.x * cr - c.y * sr, c.x * sr + c.y * cr);
           if (iV.w > 1.02 && length(vv.xy) > 1e-3) { vec2 d = normalize(vv.xy); rc = d * c.x * iV.w + vec2(-d.y, d.x) * c.y; }
-          mv.xy += rc * iP.w; gl_Position = projectionMatrix * mv; }`,
+          mv.xy += rc * min(iP.w, -mv.z * 0.16); gl_Position = projectionMatrix * mv; }`,
       fragmentShader: `uniform float uTime; uniform sampler2D tNoise; varying vec2 vUv; varying vec4 vC, vK;
         float sq(float x) { return x * x; }
         vec3 fireRamp(float T) {
@@ -2330,7 +2354,7 @@ async function start3D() {
       c: new Float32Array(cap * 4), drag: new Float32Array(cap), buoy: new Float32Array(cap), temp: new Float32Array(cap), smoke: new Uint8Array(cap) };
     return S;
   }
-  const FX = particleSystem(small ? 1000 : 1800, THREE.AdditiveBlending, -1.6, `
+  const FX = particleSystem(small ? 700 : 1100, THREE.AdditiveBlending, -1.6, `
     float kind = vK.x;
     if (kind < 0.5) {            // mist puff
       float n = texture2D(tNoise, vUv * 0.6 + vK.zz * 7.0 + vec2(0.0, uTime * 0.04)).r;
@@ -2382,7 +2406,7 @@ async function start3D() {
         C[i * 4] = S.temp[i] * Math.pow(1 - u, 1.15); C[i * 4 + 1] = Math.min(1, u * 12) * Math.pow(1 - u, 0.5) * 2.6 * S.c[i * 4 + 3]; C[i * 4 + 2] = S.c[i * 4 + 2];
         if (S.smoke[i] && u > 0.55) { S.smoke[i] = 0; const dark = S.c[i * 4 + 2]; emit(SMOKE, 0, S.p[i * 3], S.p[i * 3 + 1], S.p[i * 3 + 2], vx * 0.3, vy * 0.3, vz * 0.3, 2.2 + Math.random() * 1.4, size * 0.8, size * 2.6, 0.03 - dark * 0.02, 0.026 - dark * 0.02, 0.024 - dark * 0.02, 0.5 + dark * 0.2, 1.6, 90 * fl.scale); }
       } else if (S === SMOKE) {
-        const warm = Math.pow(1 - u, 4);
+        const warm = kd === 3 ? 0 : Math.pow(1 - u, 4);
         C[i * 4] = S.c[i * 4] + 0.25 * warm; C[i * 4 + 1] = S.c[i * 4 + 1] + 0.08 * warm; C[i * 4 + 2] = S.c[i * 4 + 2] + 0.02 * warm;
         C[i * 4 + 3] = S.c[i * 4 + 3] * Math.min(1, u * 8) * Math.pow(1 - u, 1.4);
       } else {
@@ -2395,24 +2419,24 @@ async function start3D() {
 
   // -- burning the painting: splats into the burn map --
   const burnQuad = new FullScreenQuad(new THREE.ShaderMaterial({
-    uniforms: { tPrev: { value: null }, uK: { value: new THREE.Vector2(1, 1) } }, vertexShader: FSQ_VS,
-    fragmentShader: `uniform sampler2D tPrev; uniform vec2 uK; varying vec2 vUv; void main() { vec4 c = texture2D(tPrev, vUv); gl_FragColor = vec4(c.r * uK.x, c.g * uK.y, 0.0, 1.0); }`,
+    uniforms: { tPrev: { value: null }, uK: { value: new THREE.Vector3(1, 1, 1) } }, vertexShader: FSQ_VS,
+    fragmentShader: `uniform sampler2D tPrev; uniform vec3 uK; varying vec2 vUv; void main() { vec4 c = texture2D(tPrev, vUv); gl_FragColor = vec4(c.rgb * uK, 1.0); }`,
   }));
-  const SPLAT_N = 64, splatPos = new Float32Array(SPLAT_N * 3), splatD = new Float32Array(SPLAT_N * 3);
+  const SPLAT_N = 160, splatPos = new Float32Array(SPLAT_N * 3), splatD = new Float32Array(SPLAT_N * 4);
   const splatGeo = new THREE.BufferGeometry();
-  splatGeo.setAttribute('position', new THREE.BufferAttribute(splatPos, 3)); splatGeo.setAttribute('aS', new THREE.BufferAttribute(splatD, 3));
+  splatGeo.setAttribute('position', new THREE.BufferAttribute(splatPos, 3)); splatGeo.setAttribute('aS', new THREE.BufferAttribute(splatD, 4));
   const splatPts = new THREE.Points(splatGeo, new THREE.ShaderMaterial({ transparent: true, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending,
-    vertexShader: `attribute vec3 aS; varying vec2 vS; void main() { vS = aS.yz; gl_Position = vec4(position.xy, 0.0, 1.0); gl_PointSize = aS.x; }`,
-    fragmentShader: `varying vec2 vS; void main() { vec2 p = gl_PointCoord * 2.0 - 1.0; float g = exp(-dot(p, p) * 3.0); gl_FragColor = vec4(vS * g, 0.0, 1.0); }` }));
+    vertexShader: `attribute vec4 aS; varying vec3 vS; void main() { vS = aS.yzw; gl_Position = vec4(position.xy, 0.0, 1.0); gl_PointSize = aS.x; }`,
+    fragmentShader: `varying vec3 vS; void main() { vec2 p = gl_PointCoord * 2.0 - 1.0; float g = exp(-dot(p, p) * 3.0); gl_FragColor = vec4(vS * g, 1.0); }` }));
   splatPts.frustumCulled = false;
   const splatScene = new THREE.Scene(); splatScene.add(splatPts);
   let splatN = 0, burnLive = 0;
-  function burnAt(sx, sy, rPx, char, heat) {
+  function burnAt(sx, sy, rPx, char, heat, ink = 0) {
     if (splatN >= SPLAT_N) return;
     const px = (sx - comp.ox) / comp.s, py = (sy - comp.oy) / comp.s;
     const u = (px - BURN.x0) / BURN.w, v = (py - BURN.y0) / BURN.h;
     if (u < 0 || v < 0 || u > 1 || v > 1) return;
-    splatPos.set([u * 2 - 1, (1 - v) * 2 - 1, 0], splatN * 3); splatD.set([Math.max(3, rPx / comp.s / BURN.w * BURN.res * 2), char, heat], splatN * 3); splatN++;
+    splatPos.set([u * 2 - 1, v * 2 - 1, 0], splatN * 3); splatD.set([Math.min(120, Math.max(3, rPx / comp.s / BURN.w * BURN.res * 2)), char, heat, ink], splatN * 4); splatN++;
     burnLive = 30;
   }
   function updateBurn(dt, heal) {
@@ -2420,7 +2444,7 @@ async function start3D() {
     burnLive -= dt;
     const src = burnRT[burnCur], dst = burnRT[1 - burnCur];
     burnQuad.material.uniforms.tPrev.value = src.texture;
-    burnQuad.material.uniforms.uK.value.set(Math.exp(-dt / (heal ? 1.1 : 24)), Math.exp(-dt / 1.9));
+    burnQuad.material.uniforms.uK.value.set(Math.exp(-dt / (heal ? 1.1 : 24)), Math.exp(-dt / 1.9), Math.exp(-dt / (heal ? 1.2 : 3.2)));
     renderer.setRenderTarget(dst); burnQuad.render(renderer);
     if (splatN) { splatGeo.setDrawRange(0, splatN); splatGeo.attributes.position.needsUpdate = true; splatGeo.attributes.aS.needsUpdate = true; renderer.autoClear = false; renderer.render(splatScene, camera); renderer.autoClear = true; }
     renderer.setRenderTarget(null);
@@ -2428,7 +2452,7 @@ async function start3D() {
   }
 
   // -- state --
-  const fl = { pos: V3(), vel: V3(), up: V3(), fwd: V3(), wp: V3(), speed: 700, scale: 1, epoch: 0, weave: 0, jaw: 0, roar: -1, fire: null, nextRoar: 0, nextFire: 0, nextPortal: 0, portal: null, script: null, offscreen: 0, lastHavoc: 0 };
+  const fl = { lenK: 1, pos: V3(), vel: V3(), up: V3(), fwd: V3(), wp: V3(), speed: 700, scale: 1, epoch: 0, weave: 0, jaw: 0, roar: -1, fire: null, nextRoar: 0, nextFire: 0, nextPortal: 0, portal: null, script: null, offscreen: 0, lastHavoc: 0 };
   const gold = { phase: 'off', t0: 0, spin: 0, omega: 0, ringA: new Array(7).fill(0), heat: 0, black: 0, reveal: 1, away: 0, legs: 0, swim: 0, mist: null, flightDur: 13, prevCine: 0, autoRot: true };
   const cineAuto = { v: 0 };
   let shockPx = null, aberr = 0, goldFlashFilm = 0, redGrade = 0, extraShake = 0;
@@ -2443,23 +2467,27 @@ async function start3D() {
   for (let i = 1; i < NR; i++) scaleV[i] = scaleV[i - 1] + (neckS / (NR - 1)) / (0.26 * Math.max(4, (bodyR[i] + bodyR[i - 1]) / 2));
   let kPx = 1;   // world units per painting px at the painting plane (set when posing)
 
-  // the painted pose on the painting plane: fills the trail with the spine (tail → neck) and puts the head at the neck
-  function poseFromPainting() {
-    const dist = camDist() + PLANE_BEHIND; kPx = worldPerPaintPx(dist);
-    trail.clear();
-    const sc = {}, n = 90;
-    for (let k = 0; k <= n; k++) {
-      const s = neckS * k / n, q = splineAt(s);
-      paintToScreen([q.x, q.y], sc); screenToWorld(sc.x, sc.y, dist, _b);
-      _c.copy(camR).multiplyScalar(q.ty).addScaledVector(camU, q.tx).normalize();   // left-hand normal (screen y is down) → his back
-      trail.push(_b, _c, fl.epoch, false);
+  // his painted pose on the painting plane: spine points tail → neck with the direction of his back, and the head frame.
+  // The charge, the take-off and the return all use exactly these points, so he lands back precisely where he started.
+  const posePts = Array.from({ length: 91 }, V3), poseUps = Array.from({ length: 91 }, V3), poseFwd = V3(), poseUp = V3();
+  let poseLen = 1;
+  function paintedPath() {
+    const dist = camDist() + PLANE_BEHIND, sc = {}; kPx = worldPerPaintPx(dist); poseLen = 0;
+    for (let k = 0; k <= 90; k++) {
+      const q = splineAt(neckS * k / 90);
+      paintToScreen([q.x, q.y], sc); screenToWorld(sc.x, sc.y, dist, posePts[k]);
+      poseUps[k].copy(camR).multiplyScalar(q.ty).addScaledVector(camU, q.tx).normalize();   // left-hand normal (screen y is down) → his back
+      if (k) poseLen += posePts[k].distanceTo(posePts[k - 1]);
     }
-    const q = splineAt(neckS), qs = splineAt(SPL_LEN);
-    paintToScreen([q.x, q.y], sc); screenToWorld(sc.x, sc.y, dist, fl.pos);
-    paintToScreen([qs.x, qs.y], sc); screenToWorld(sc.x, sc.y, dist, _d);
-    fl.fwd.copy(_d).sub(fl.pos).normalize();
-    fl.up.copy(camR).multiplyScalar(q.ty).addScaledVector(camU, q.tx).normalize();
-    fl.scale = 1;
+    const qs = splineAt(SPL_LEN);
+    paintToScreen([qs.x, qs.y], sc); screenToWorld(sc.x, sc.y, dist, poseFwd); poseFwd.sub(posePts[90]).normalize();
+    poseUp.copy(poseUps[90]).addScaledVector(poseFwd, -poseUps[90].dot(poseFwd)).normalize();
+    return dist;
+  }
+  function poseFromPainting() {
+    paintedPath(); trail.clear();
+    for (let k = 0; k <= 90; k++) trail.push(posePts[k], poseUps[k], fl.epoch, false);
+    fl.pos.copy(posePts[90]); fl.fwd.copy(poseFwd); fl.up.copy(poseUp); fl.scale = 1; fl.lenK = 1;
   }
   // head frame → matrix
   const headM = new THREE.Matrix4(), headX = V3(), mouthW = V3(), mouthDir = V3();
@@ -2475,16 +2503,18 @@ async function start3D() {
 
   // rebuild the body and all attachments for this frame
   function buildDragon(t, dt, bodyOnly) {
-    const len = neckS * kPx * fl.scale, arc0 = trail.arc, R0 = bodyR[0] * kPx * fl.scale;
+    const len = poseLen * fl.lenK, arc0 = trail.arc, R0 = bodyR[0] * kPx * fl.scale;
     for (let i = 0; i < NR; i++) bodyE[i] = trail.sample(arc0 - len * i / (NR - 1), bodyP[i], bodyU[i]);
     bodyP[0].copy(fl.pos);
-    // a swimming wave: side to side and up and down, none at the neck
-    for (let i = 0; i < NR; i++) {
-      const u = i / (NR - 1), env = smooth(0, 0.18, u) * gold.swim * R0;
-      if (!env) continue;
-      _a.copy(bodyP[Math.min(i + 1, NR - 1)]).sub(bodyP[Math.max(i - 1, 0)]).normalize();
-      _b.crossVectors(bodyU[i], _a).normalize();
-      bodyP[i].addScaledVector(_b, Math.sin(u * 9 - t * 4.2) * env * 1.1).addScaledVector(bodyU[i], Math.sin(u * 6 - t * 3.1 + 1.3) * env * 0.7);
+    // a travelling wave runs from neck to tail, side to side and up and down, growing toward the tail
+    if (gold.swim > 0.001) {
+      const wl = len * 0.42;
+      for (let i = 1; i < NR; i++) {
+        const u = i / (NR - 1), s = len * u, amp = gold.swim * R0 * smooth(0, 0.2, u) * (0.9 + 1.5 * u);
+        _a.copy(bodyP[Math.min(i + 1, NR - 1)]).sub(bodyP[i - 1]).normalize();
+        _b.crossVectors(bodyU[i], _a).normalize();
+        bodyP[i].addScaledVector(_b, Math.sin(s / wl * 6.2832 - t * 3.0) * amp * 1.4).addScaledVector(bodyU[i], Math.sin(s / (wl * 1.3) * 6.2832 - t * 2.3 + 1.3) * amp * 0.8);
+      }
     }
     for (let i = 0; i < NR; i++) {
       bodyT[i].copy(bodyP[Math.max(i - 1, 0)]).sub(bodyP[Math.min(i + 1, NR - 1)]);
@@ -2493,7 +2523,7 @@ async function start3D() {
       bodyU[i].addScaledVector(bodyT[i], -bodyU[i].dot(bodyT[i]));
       if (bodyU[i].lengthSq() < 1e-6) bodyU[i].copy(i ? bodyU[i - 1] : fl.up);
       bodyU[i].normalize(); bodyX[i].crossVectors(bodyU[i], bodyT[i]);
-      tubes.ring(tBody, i, bodyP[i], bodyX[i], bodyU[i], bodyR[i] * kPx * fl.scale * (i === 0 ? 1.02 : 1), scaleV[i], 0, bodyE[i], i / (NR - 1));
+      tubes.ring(tBody, i, bodyP[i], bodyX[i], bodyU[i], bodyR[i] * kPx * fl.scale * (i === 0 ? 1.02 : 1), scaleV[i] * fl.lenK / fl.scale, 0, bodyE[i], i / (NR - 1));
     }
     headMatrix(R0);
     DU2.uHeadEpoch.value = fl.epoch;
@@ -2542,7 +2572,7 @@ async function start3D() {
       for (let k = 0; k < S.n; k++) {
         const rest = V3().set(S.root[0] + dir.x * seg * k, S.root[1] + dir.y * seg * k - 0.04 * k * k * (S.frame === 'head' ? 1 : 0), S.root[2] + dir.z * seg * k).applyMatrix4(M);
         if (k === 0 || snap) { S.p[k].copy(k ? rest : root); S.o[k].copy(S.p[k]); continue; }
-        const stiff = Math.min(1, (0.22 - 0.16 * k / S.n) * dt * 60);
+        const stiff = Math.min(1, (0.15 - 0.11 * k / S.n) * dt * 60);
         _a.copy(S.p[k]).sub(S.o[k]).multiplyScalar(0.9); S.o[k].copy(S.p[k]);
         S.p[k].add(_a).addScaledVector(_b.copy(rest).sub(S.p[k]), stiff);
         S.p[k].addScaledVector(fl.up, Math.sin(t * 6 + k * 0.8 + S.root[0] * 5) * 0.012 * k * R0);
@@ -2575,7 +2605,7 @@ async function start3D() {
   const prevVel = V3();
   function steer(t, dt, speed, turn) {
     _d.copy(fl.wp).sub(fl.pos); const dist = _d.length(); _d.normalize();
-    _d.applyAxisAngle(fl.up, Math.sin(t * 1.9 + fl.weave) * 0.38).applyAxisAngle(headX, Math.sin(t * 1.3 + fl.weave) * 0.2);
+    _d.applyAxisAngle(fl.up, Math.sin(t * 1.15 + fl.weave) * 0.55).applyAxisAngle(headX, Math.sin(t * 0.83 + fl.weave) * 0.3);
     prevVel.copy(fl.vel);
     fl.vel.lerp(_d.multiplyScalar(speed), 1 - Math.exp(-dt * turn));
     _a.copy(fl.pos).sub(controls.target); const rc = _a.length();   // keep out of the brain
@@ -2663,6 +2693,28 @@ async function start3D() {
     if (I > 0.01) { toScr(fireC, sc); BG.uGlow.value.set(sc.x, sc.y, I * 0.5); } else BG.uGlow.value.z = 0;
     SU.uFireLight.value = Math.max(SU.uFireLight.value, I * Math.exp(-fireC.distanceTo(controls.target) / 500));
   }
+  // he touches the painting as he passes: his body leaves a wake in the ink wash, sheds ink, and portals whirl the mist
+  let wakeTick = 0;
+  function inkTouch(t, dt, amt) {
+    const sc = {}, dist0 = camDist();
+    for (let k = 0; k < 12; k++) {
+      const i = (wakeTick * 7 + k * Math.floor(NR / 12)) % NR;
+      toScr(bodyP[i], sc);
+      if (sc.z >= 1) continue;
+      const d = camera.position.distanceTo(bodyP[i]), px = bodyR[i] * kPx * fl.scale * 2.6 / (d * 2 * Math.tan(camera.fov * Math.PI / 360) / innerHeight);
+      burnAt(sc.x, sc.y, px, 0, 0, 0.1 * amt * smooth(dist0 * 0.45, dist0 + 150, d));
+    }
+    wakeTick++;
+    PORT.forEach(P => { if (P.on && P.open > 0.3) { toScr(P.c, sc); if (sc.z < 1) burnAt(sc.x, sc.y, P.r * 2.2 * P.open / (camera.position.distanceTo(P.c) * 2 * Math.tan(camera.fov * Math.PI / 360) / innerHeight), 0, 0, 0.12); } });
+    const n = Math.floor(dt * 40 * amt + Math.random());
+    for (let k = 0; k < n; k++) {
+      const i = Math.floor(Math.pow(Math.random(), 0.6) * (NR - 1)) + 1, r = bodyR[i] * kPx * fl.scale, th = Math.random() * 6.283;
+      _a.copy(bodyX[i]).multiplyScalar(Math.cos(th)).addScaledVector(bodyU[i], Math.sin(th));
+      emit(SMOKE, 3, bodyP[i].x + _a.x * r * 0.9, bodyP[i].y + _a.y * r * 0.9, bodyP[i].z + _a.z * r * 0.9,
+        _a.x * 22 - bodyT[i].x * 35, _a.y * 22 - bodyT[i].y * 35, _a.z * 22 - bodyT[i].z * 35, 1.3 + Math.random() * 1.1, r * 1.1, r * 4.2, 0.012, 0.011, 0.01, 0.3, 1.3, 12);
+    }
+  }
+  const blossomPx = {};
   function havoc(t) {
     if (BACKDROP || t - fl.lastHavoc < 0.12) return;
     fl.lastHavoc = t;
@@ -2673,6 +2725,7 @@ async function start3D() {
       if (Math.random() < 0.15) startThought(t);
     }
     const sc = {}; toScr(fl.pos, sc);
+    PAINT.blossoms.forEach(b => { paintToScreen(b, blossomPx); if (sc.z < 1 && Math.hypot(blossomPx.x - sc.x, blossomPx.y - sc.y) < 140 && Math.random() < 0.3) { for (let j = 0; j < 3; j++) spawnPetal(petalsBack, t, false, b); wind.kick = Math.max(wind.kick, 0.7); } });
     hudEls.forEach(el => { const b = el.getBoundingClientRect(); if (sc.x > b.left - 90 && sc.x < b.right + 90 && sc.y > b.top - 90 && sc.y < b.bottom + 90 && Math.random() < 0.35) glitch(el); });
   }
   let gyroKick = 0;
@@ -2689,8 +2742,8 @@ async function start3D() {
       P.mesh.material.uniforms.uOpen.value = P.open;
       // gold rings outline every portal: a spiked ring and a finer counter-turning one
       _b.copy(camU); if (Math.abs(_b.dot(P.n)) > 0.9) _b.copy(camR);
-      setRing(7 + k * 2, P.c, P.n, _b, t * 2.4 + k, P.r * 1.02 * P.open, 1, 0.8, 1);
-      setRing(8 + k * 2, P.c, P.n, _b, -t * 3.1 + Math.PI / 4, P.r * 0.8 * P.open, 1, 0.5, 1);
+      setRing(7 + k * 2, P.c, P.n, _b, t * 2.4 + k, P.r * 1.02 * P.open, 1, 0.3, 0.75);
+      setRing(8 + k * 2, P.c, P.n, _b, -t * 3.1 + Math.PI / 4, P.r * 0.8 * P.open, 1, 0.1, 0.6);
     });
     const A = fl.portal?.A, B = fl.portal?.B;
     DU2.uClipA.value.set(0, 0, 0, -1); DU2.uClipB.value.set(0, 0, 0, -1);
@@ -2740,12 +2793,14 @@ async function start3D() {
       setPhase('charge', t); gold.ringA.fill(0); gold.spin = 0; gold.omega = 0;
       gold.autoRot = controls.autoRotate; controls.autoRotate = false;
       say('Golden rings gathering');
-    } else if (gold.phase === 'ready') {
-      setPhase('emerge', t); say('Ascension'); fl.epoch = 0; fl.portal = null;
-      extraShake = gentleMotion ? 0.3 : 0.8; aberr = 1; goldFlashFilm = 0.6; wind.kick = 1.5;
-      cineAuto.v = 1;
-    } else if (gold.phase === 'charge') say('The rings are still gathering');
+    } else if (gold.phase === 'ready') launch(t);
+    else if (gold.phase === 'charge') say('The rings are still gathering');
   };
+  function launch(t) {
+    setPhase('emerge', t); say('Ascension'); fl.epoch = 0; fl.portal = null;
+    extraShake = gentleMotion ? 0.3 : 0.8; aberr = 1; goldFlashFilm = 0.6; wind.kick = 1.5;
+    cineAuto.v = 1;
+  }
   const ringRef = V3();
   function placeBodyRings(t, alphaAll, burst, tilt = 0) {
     const R0 = kPx * fl.scale;
@@ -2775,7 +2830,7 @@ async function start3D() {
     }
     FX.m.visible = SMOKE.m.visible = true;
     camBasis(); upW.copy(camU);
-    DU2.uCam.value.copy(camera.position);
+    DU2.uCam.value.copy(camera.position); DU2.uFogD.value = camDist(); DU2.uInkEdge.value = gold.phase === 'settle' || gold.phase === 'return' ? 1 : 0;
     dragon.next = Math.max(dragon.next, t + 6);
     const k = t - gold.t0, ph = gold.phase;
     let ringAlpha = 1, burst = 0, eye = 0;
@@ -2803,9 +2858,9 @@ async function start3D() {
       BG.uGold.value = (0.12 + 0.62 * sum / 7 + beat) * (ph === 'release' ? Math.max(0, 1 - k / 1.4) : 1);
       BG.uGoldScale.value = Math.min(1.05, sum / 7 * 1.05);
       eye = Math.min(1, sum / 3);
-      if (ph === 'ready' && Math.random() < dt * 14) { const i = Math.floor(Math.random() * NR * 0.9); mistAt(_a.copy(bodyP[i]).addScaledVector(bodyU[i], bodyR[i] * kPx), 1, 30, 40 * kPx); }
-      if (ph === 'charge' && sum >= 6.999) { setPhase('ready', t); say('Seven rings bound · press G to ascend'); goldFlashFilm = 0.18; }
-      if (ph === 'ready' && k > 45) { setPhase('release', t); say('The rings fade'); }
+      if (ph === 'ready' && Math.random() < dt * 6) { const i = Math.floor(Math.random() * NR * 0.9); mistAt(_a.copy(bodyP[i]).addScaledVector(bodyU[i], bodyR[i] * kPx), 1, 30, 40 * kPx); }
+      if (ph === 'charge' && sum >= 6.999) { setPhase('ready', t); say('Seven rings bound'); goldFlashFilm = 0.18; }
+      if (ph === 'ready' && k > 0.9) launch(t);
       if (ph === 'release' && k > 1.5) return finish(t);
       placeBodyRings(t, 1, 0, 0.62);
       rings.visible = true;
@@ -2813,20 +2868,20 @@ async function start3D() {
       dragonProxy.visible = false; dragonMesh.visible = headGroup.visible = true;
       if (ph === 'emerge') {
         onceG('pose', () => { poseFromPainting(); fl.vel.copy(fl.fwd).multiplyScalar(160); fl.weave = Math.random() * 10; });
-        gold.away = smooth(0, 0.9, k); gold.reveal = gold.away; gold.legs = smooth(0.3, 1.3, k); gold.swim = smooth(0.4, 1.6, k) * 0.35;
+        gold.away = smooth(0, 0.9, k); gold.reveal = gold.away; gold.legs = smooth(0.3, 1.3, k); gold.swim = smooth(0.4, 1.6, k) * 0.5;
         BG.uGold.value = 0.6 * (1 - smooth(0.2, 1.2, k)); BG.uGoldScale.value = 1.05; BG.uGoldFlash.value = 0.9 * Math.exp(-k * 3);
         prevVel.copy(fl.vel);
         _a.copy(fl.fwd).multiplyScalar(0.5).addScaledVector(camF, -0.7).addScaledVector(camU, 0.35).normalize();
         fl.vel.lerp(_a.multiplyScalar(420), 1 - Math.exp(-dt * 2.5)); fl.pos.addScaledVector(fl.vel, dt); orient(dt);
         if (k > 1.3) { setPhase('flight', t); waypoint(); fl.nextPortal = t + 2.2; fl.nextRoar = t + 0.4; fl.nextFire = t + 1.6; gold.flightDur = 12.5 + Math.random() * 1.5; }
       } else if (ph === 'flight') {
-        fl.scale += (FLIGHT_SCALE - fl.scale) * (1 - Math.exp(-dt * 1.2));
-        gold.swim = 0.35;
-        fl.speed = 620 + 200 * Math.sin(t * 0.7 + fl.weave) + (fl.fire ? -120 : 0);
+        fl.scale += (FLIGHT_SCALE - fl.scale) * (1 - Math.exp(-dt * 1.2)); fl.lenK += (FLIGHT_LEN - fl.lenK) * (1 - Math.exp(-dt * 0.7));
+        gold.swim = Math.min(1, gold.swim + dt * 0.8);
+        fl.speed = 540 + 170 * Math.sin(t * 0.6 + fl.weave) + (fl.fire ? -100 : 0);
         gold.heat = smooth(gold.flightDur - 4.2, gold.flightDur - 2.4, k); gold.black = smooth(gold.flightDur - 2.2, gold.flightDur - 0.8, k);
         if (k > gold.flightDur - 4.2) onceG('red', () => say('Blood-red'));
         if (k > gold.flightDur - 2.2) onceG('black', () => say('Black and red'));
-        if (!portalFlight(t, dt)) steer(t, dt, fl.speed, fl.fire ? 1.6 : 2.4);
+        if (!portalFlight(t, dt)) steer(t, dt, fl.speed, fl.fire ? 1.2 : 1.7);
         if (!fl.portal && t > fl.nextPortal && k < gold.flightDur - 2.5) {
           const sc = {}; _b.copy(fl.pos).addScaledVector(fl.vel, 0.6); toScr(_b, sc);
           if (sc.x > innerWidth * 0.1 && sc.x < innerWidth * 0.9 && sc.y > innerHeight * 0.12 && sc.y < innerHeight * 0.88 && sc.z < 1) {
@@ -2841,7 +2896,7 @@ async function start3D() {
         if (k > gold.flightDur && !fl.portal) {       // rise: down below the bottom edge, then straight up the centre
           const D = camDist() - 200, W = innerWidth, H = innerHeight;
           const P1 = screenToWorld(W / 2, H * 1.3, D, V3()), top = screenToWorld(W / 2, -H * 0.3, D, V3());
-          const up = V3().copy(top).sub(P1).normalize(), L = neckS * kPx * fl.scale;
+          const up = V3().copy(top).sub(P1).normalize(), L = poseLen * fl.lenK;
           const P2 = V3().copy(top).addScaledVector(up, L + 200);
           const c1 = V3().copy(fl.pos).addScaledVector(fl.vel, 0.45), c2 = V3().copy(P1).addScaledVector(up, -500);
           const pts = [...bez(fl.pos.clone(), c1, c2, P1, 40), ...Array.from({ length: 30 }, (_, i) => V3().copy(P1).lerp(P2, (i + 1) / 30))];
@@ -2854,7 +2909,7 @@ async function start3D() {
           const C = controls.target.clone(), D = camDist();
           const start = fl.pos.clone(), top = screenToWorld(innerWidth / 2, -innerHeight * 0.25, D - 60, V3());
           const c1 = V3().copy(start).addScaledVector(camU, 500), c2 = V3().copy(top).addScaledVector(camU, 700).addScaledVector(camF, -200);
-          const down = V3().copy(C).sub(top).normalize(), L = neckS * kPx * fl.scale;
+          const down = V3().copy(C).sub(top).normalize(), L = poseLen * fl.lenK;
           const pts = [...bez(start, c1, c2, top, 30), ...Array.from({ length: 40 }, (_, i) => V3().copy(top).addScaledVector(down, (i + 1) / 40 * (top.distanceTo(C) + L + 300)))];
           fl.script = makeScript(pts, null, 0, null); fl.script.impact = fl.script.L - L - 300;
           fl.script.dur = 2.4; fl.script.ease = x => x * x * (1.6 - 0.6 * x);
@@ -2864,7 +2919,7 @@ async function start3D() {
         const done = runScript(fl.script, dt);
         const a = fl.script.L * fl.script.ease(fl.script.k);
         if (a >= fl.script.impact) onceG('impact', () => impact(t));
-        if (gold.mist) { gold.mist.r = 60 + (t - gold.mist.t0) * 40; DU2.uMistR.value = gold.mist.r; for (let i = 0; i < NR; i += 6) if (bodyP[i].distanceTo(DU2.uMistC.value) < gold.mist.r + 90) mistAt(bodyP[i], 1, 120, 90 * fl.scale); }
+        if (gold.mist) { gold.mist.r = 60 + (t - gold.mist.t0) * 40; DU2.uMistR.value = gold.mist.r; if (Math.random() < dt * 24) { const i = Math.floor(Math.random() * NR); if (bodyP[i].distanceTo(DU2.uMistC.value) < gold.mist.r + 120) mistAt(bodyP[i], 1, 120, 60 * fl.scale); } }
         if (done || (gold.mist && t - gold.mist.t0 > 1.6)) { setPhase('mist', t); dragonMesh.visible = headGroup.visible = false; }
       }
       eye = 1; eyeCol = gold.black > 0.5 ? [1.0, 0.06, 0.02] : gold.heat > 0.5 ? [1.0, 0.25, 0.05] : eyeGold;
@@ -2879,6 +2934,7 @@ async function start3D() {
         buildDragon(t, dt, false);
         breathe(t, dt, fireAmt);
         havoc(t);
+        inkTouch(t, dt, ph === 'emerge' ? gold.reveal : 1);
         const sc = {}; toScr(fl.pos, sc); wake.on = sc.z < 1; wake.x = sc.x; wake.y = sc.y;
         placeBodyRings(t, 1, 0, ph === 'emerge' ? 0.62 * (1 - smooth(0, 1.3, k)) : 0);
         rings.visible = true;
@@ -2895,18 +2951,21 @@ async function start3D() {
       dragonMesh.visible = headGroup.visible = true; dragonProxy.visible = false; rings.visible = false;
       if (ph === 'return') {
         const done = runScript(fl.script, dt);
-        const kk = fl.script.k;
-        gold.swim = 0.25 * (1 - smooth(0.35, 0.8, kk)); gold.legs = 1 - smooth(0.55, 0.9, kk);
+        const kk = fl.script.k, land = smooth(0.8, 1, kk);
+        fl.fwd.lerp(poseFwd, land).normalize(); fl.up.lerp(poseUp, land).normalize();   // settle the head into its painted angle
+        gold.swim = 0.6 * (1 - smooth(0.3, 0.8, kk)); gold.legs = 1 - smooth(0.55, 0.9, kk);
         DU2.uGoldA.value = 0.35 + 0.25 * Math.sin(t * 3);
         if (done) { setPhase('settle', t); say('Back into the scroll'); goldFlashFilm = 0.25; }
       } else {
         gold.away = 1 - smooth(0.1, 1.5, k); gold.reveal = gold.away; gold.swim = 0; gold.legs = 0;
-        BG.uGoldFlash.value = 0.6 * Math.exp(-sq(k - 0.4) / 0.2);
+        fl.pos.copy(posePts[90]); fl.fwd.copy(poseFwd); fl.up.copy(poseUp);
+        BG.uGoldFlash.value = 0.3 * Math.exp(-((k - 0.4) ** 2) / 0.2);
         if (k > 1.9) return finish(t);
       }
       fl.jaw += (0.04 - fl.jaw) * (1 - Math.exp(-dt * 6));
       trail.push(fl.pos, fl.up, fl.epoch, false);
       buildDragon(t, dt, false);
+      if (ph === 'return') inkTouch(t, dt, 0.6 * (1 - smooth(0.7, 1, fl.script.k)));
       BG.uAway.value = gold.away; redGrade = 0;
       eye = 1 - smooth(0.2, 1.6, ph === 'settle' ? k : 0);
     }
@@ -2928,7 +2987,7 @@ async function start3D() {
   function impact(t) {
     say('Dissolved into golden mist');
     gold.mist = { t0: t, r: 60 }; DU2.uMistC.value.copy(controls.target); DU2.uMistR.value = 60;
-    mistAt(controls.target, small ? 140 : 260, 420, 110);
+    mistAt(controls.target, small ? 36 : 60, 380, 70);
     sparksAt(controls.target, 120, [2.4, 1.7, 0.7], 700, 1.6);
     extraShake = gentleMotion ? 0.4 : 1.3; aberr = 1.2; goldFlashFilm = 1; U.uReso.value = 1; wind.kick = 2;
     for (let i = 0; i < 7; i++) gold.ringA[i] = 0;
@@ -2942,27 +3001,24 @@ async function start3D() {
   function startReturn(t) {
     // back from off-screen, low on the left, into his tail and along his painted spine until his head is home
     gold.mist = null; DU2.uMistR.value = -1; gold.heat = 0; gold.black = 0; redGrade = 0;
-    fl.epoch += 2; fl.scale = 1; fl.portal = null; fl.fire = null; fl.roar = -1;
-    const dist = camDist() + PLANE_BEHIND; kPx = worldPerPaintPx(dist);
+    fl.epoch += 2; fl.scale = 1; fl.lenK = 1; fl.portal = null; fl.fire = null; fl.roar = -1;
+    const dist = paintedPath();
     const sc = {}, pts = [], ups = [];
     const toW = (x, y) => { paintToScreen([x, y], sc); return screenToWorld(sc.x, sc.y, dist, V3()); };
     const pre = [[-420, 1420], [-260, 1300], [-80, 1180], [SPL[0].x, SPL[0].y]];
     for (let k = 0; k < pre.length - 1; k++) for (let j = 0; j < 12; j++) { const f = j / 12; pts.push(toW(pre[k][0] + (pre[k + 1][0] - pre[k][0]) * f, pre[k][1] + (pre[k + 1][1] - pre[k][1]) * f)); }
-    for (let k = 0; k <= 90; k++) pts.push(toW(splineAt(neckS * k / 90).x, splineAt(neckS * k / 90).y));
     for (let k = 0; k < pts.length; k++) {
-      const a = pts[Math.max(0, k - 1)], b = pts[Math.min(pts.length - 1, k + 1)];
+      const a = pts[Math.max(0, k - 1)], b = k + 1 < pts.length ? pts[k + 1] : posePts[0];
       _a.copy(b).sub(a); const sx = _a.dot(camR), sy = -_a.dot(camU), l = Math.hypot(sx, sy) || 1;
       ups.push(V3().copy(camR).multiplyScalar(sy / l).addScaledVector(camU, sx / l).normalize());
     }
+    for (let k = 0; k <= 90; k++) { pts.push(posePts[k].clone()); ups.push(poseUps[k].clone()); }   // the exact pose he left from
     trail.clear();
-    const back = V3().copy(pts[0]).sub(pts[1]).normalize(), L = neckS * kPx + 200;
+    const back = V3().copy(pts[0]).sub(pts[1]).normalize(), L = poseLen + 200;
     for (let j = 40; j >= 1; j--) trail.push(_b.copy(pts[0]).addScaledVector(back, L * j / 40), ups[0], fl.epoch, false);
     fl.pos.copy(pts[0]); fl.up.copy(ups[0]); fl.fwd.copy(pts[1]).sub(pts[0]).normalize(); fl.snap = true;
-    // the head's final placement: the snout direction from the painted neck
-    fl.script = makeScript(pts, ups, 6.2, x => 1 - Math.pow(1 - x, 2.3));
-    const q = splineAt(neckS), qs = splineAt(SPL_LEN);
-    fl.script.endFwd = toW(qs.x, qs.y).sub(toW(q.x, q.y)).normalize();
-    gold.reveal = 1; gold.away = 1; gold.legs = 1; gold.swim = 0.25;
+    fl.script = makeScript(pts, ups, 6.4, x => 1 - Math.pow(1 - x, 2.3));
+    gold.reveal = 1; gold.away = 1; gold.legs = 1; gold.swim = 0.6;
     setPhase('return', t); say('Returning');
   }
   function finish(t) {
@@ -3012,6 +3068,7 @@ async function start3D() {
   let last = t0, acc = 0, frames = 0, lastCheck = t0;
   const savedPos = new THREE.Vector3(), mouthPx = {};
   function frame(now) {
+    requestAnimationFrame(frame);   // scheduled first: an error in one frame must never freeze the page
     const t = (now - t0) / 1000, dt = Math.min(0.1, (now - last) / 1000);
     acc += now - last; frames++; last = now;
     U.uTime.value = t;
@@ -3100,7 +3157,7 @@ async function start3D() {
     viewShift += (shiftWant - viewShift) * 0.08;
     camera.setViewOffset(innerWidth, innerHeight, 0, -(comp.cy - innerHeight / 2) + viewShift, innerWidth, innerHeight);
 
-    updateGold(t, dt);
+    try { updateGold(t, dt); } catch (e) { console.error('Ascension stopped', e); try { finish(t); } catch (e2) { gold.phase = 'off'; } }
     cine += (Math.max(cineWant, cineAuto.v) - cine) * 0.08;
     film.quad.material.uniforms.uCine.value = cine;
     keyDir.set(-0.45, 0.75, 0.5).normalize().transformDirection(camera.matrixWorldInverse);
@@ -3121,7 +3178,6 @@ async function start3D() {
     camera.position.copy(savedPos);
     if (!BACKDROP && !document.body.classList.contains('clean')) overlay();
     else canvas.classList.toggle('pointing', !!pointer && dragon.t0 < 0 && overDragon(pointer.x, pointer.y));
-    requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
 }
