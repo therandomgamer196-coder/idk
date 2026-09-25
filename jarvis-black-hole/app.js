@@ -1228,6 +1228,8 @@ addEventListener("keydown",e=>{
   if(e.code==="Space"){e.preventDefault();if(!e.repeat){spaceAt=performance.now();lookHeld=true;setLook(true);}return;}
   const k=e.key.toLowerCase();
   if(k==="/"){e.preventDefault();$("q").focus();return;}
+  if(k==="p"){openRoutes("routes");return;}
+  if(e.key==="?"){const t=$("tab-keys");if(t)t.click();return;}
   if(k==="h")document.body.classList.toggle("clean");if(k==="f")toggleFull();if(k==="r")goHome();if(k==="e")goBody(2);
   if(k==="o"){OPT.orbits=!OPT.orbits;syncMenus();save();}
   if(k==="1"||k==="2"||k==="3")setMode(+k-1);
@@ -1437,12 +1439,15 @@ function earthFills(){if(len(sub(cp,EW))>13*3)return false;const o=sub(cp,EW),W_
   return[[0,0],[W_,0],[0,H_],[W_,H_],[W_/2,0]].every(([x,y])=>{const d=rayAt(x,y);return d&&hitEarthT(o,d)>=0;});}
 
 // ---------- menus ----------
+const KEYLIST=[["Keyboard",[["/","Search Earth"],["P","Routes and landmarks"],["E","Fly to Earth"],["R","Back to the black hole"],["O","Orbits and labels"],["1 2 3","Jarvis mode: idle, listening, speaking"],["H","Hide everything"],["F","Full screen"],["Space","Look around (tap to keep it on)"],["Esc","Close menus and cards"],["?","This list"]]],
+  ["Mouse",[["Drag","Orbit the core, or spin a planet under you"],["Scroll","Fly forward and back"],["Click","Below 3 km: a building's name, address, phone and website"],["Double-click","Full screen (when not zoomed in on Earth)"]]]];
 const MENUS=[
   {id:"mode",label:"Mode",val:()=>MODES[OPT.mode],groups:[{title:"Jarvis state",radio:"mode",items:MODES.map((m,i)=>[i,m,["1","2","3"][i]])}]},
   {id:"travel",label:"Travel",val:()=>"",groups:[{title:"Go to",act:"travel",items:[["hole","Binary core","R"],["sun","Sun"],["mercury","Mercury"],["venus","Venus"],["earth","Earth","E"],["moon","Moon"],["mars","Mars"],["jupiter","Jupiter"],["saturn","Saturn"],["uranus","Uranus"],["neptune","Neptune"],["system","Whole solar system"]]}]},
   {id:"style",label:"Style",val:()=>"",groups:[{title:"Palette",radio:"pal",items:PAL.map((p,i)=>[i,p.name])},{title:"Overlays",check:[["net","AI network across the sky"],["cine","Cinema bars (2.39:1)"]]}]},
   {id:"earth",label:"Earth",val:()=>OPT.sun==="live"?"Live":"Day",groups:[{title:"Lighting",radio:"sun",items:[["live","Real time · Sun and Moon"],["day","Always daylight"]]},{title:"Right now",info:"here"},{title:"Show",check:[["clouds","Clouds"],["me","My location"]]},{title:"Imagery",info:"imagery"}]},
-  {id:"display",label:"Display",val:()=>"",groups:[{title:"Quality",radio:"q",items:Object.entries(PRESET).map(([k,v])=>[k,v.label])},{title:"Show",check:[["orbits","Orbits and labels","O"],["stats","Performance stats"],["autohide","Hide controls when idle"]]},{title:"Graphics card",info:"gpu"},{title:"Controls",keys:true}]}];
+  {id:"display",label:"Display",val:()=>"",groups:[{title:"Quality",radio:"q",items:Object.entries(PRESET).map(([k,v])=>[k,v.label])},{title:"Show",check:[["orbits","Orbits and labels","O"],["stats","Performance stats"],["autohide","Hide controls when idle"]]},{title:"Graphics card",info:"gpu"},{title:"Controls",keys:true}]},
+  {id:"keys",label:"Keys",val:()=>"",groups:KEYLIST.map(([t,l])=>({title:t,keylist:l}))}];
 let travelName="Binary core",openMenu=null;
 const chev=`<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>`;
 function buildMenus(){
@@ -1462,7 +1467,8 @@ function buildMenus(){
       if(g.info==="here")menu.insertAdjacentHTML("beforeend",`<div class="info" id="hereInfo"></div>`);
       if(g.info==="imagery")menu.insertAdjacentHTML("beforeend",`<div class="info" id="imgInfo"></div>`);
       if(g.info==="gpu")menu.insertAdjacentHTML("beforeend",`<div class="info"><b>${esc(GPU||"Unknown")}</b><br>${DISCRETE?"Rendering on the dedicated GPU.":SOFTWARE?"Software rendering on the CPU: see Windows Settings → Display → Graphics to force the RTX.":"Integrated GPU: set your browser to High performance in Windows Settings → Display → Graphics to use the RTX."}</div>`);
-      if(g.keys)menu.insertAdjacentHTML("beforeend",`<div class="keys"><kbd>Drag</kbd><span>Orbit the core, or spin a planet under you</span><kbd>Scroll</kbd><span>Fly forward and back</span><kbd>Space</kbd><span>Look around (tap to keep it on)</span><kbd>/</kbd><span>Search Earth</span><kbd>H</kbd><span>Hide everything</span><kbd>F</kbd><span>Full screen</span></div>`);
+      if(g.keylist)menu.insertAdjacentHTML("beforeend",`<div class="keys">${g.keylist.map(([k,d])=>`<span class="kk">${k.split(" ").map(x=>`<kbd>${x}</kbd>`).join("")}</span><span>${d}</span>`).join("")}</div>`);
+      if(g.keys)menu.insertAdjacentHTML("beforeend",`<div class="keys"><kbd>Drag</kbd><span>Orbit the core, or spin a planet under you</span><kbd>Scroll</kbd><span>Fly forward and back</span><kbd>Space</kbd><span>Look around (tap to keep it on)</span><kbd>/</kbd><span>Search Earth</span><kbd>P</kbd><span>Routes and landmarks</span><kbd>H</kbd><span>Hide everything</span><kbd>F</kbd><span>Full screen</span></div>`);
     });
     const tab=dd.querySelector(".tab");
     tab.onclick=e=>{e.stopPropagation();const open=menu.hidden;closeMenus();if(open){menu.hidden=false;tab.setAttribute("aria-expanded","true");openMenu=m.id;if(m.id==="travel")travelDistances();if(m.id==="earth"){imageryInfo();hereInfo();}}};
@@ -1475,9 +1481,9 @@ function buildMenus(){
       if(b.dataset.go){closeMenus();const g=b.dataset.go;if(g==="hole")goHome();else if(g==="sun")goSun();else if(g==="system")goSystem();else goBody(BODY.findIndex(x=>x.key===g));}
     });
   }
-  const pb=document.createElement("button");pb.className="tab";pb.type="button";pb.id="tab-places";pb.setAttribute("aria-expanded","false");
+  const pb=document.createElement("button");pb.className="tab places";pb.type="button";pb.id="tab-places";pb.setAttribute("aria-expanded","false");
   pb.innerHTML=`Places <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.4"/></svg>`;
-  pb.onclick=e=>{e.stopPropagation();closeMenus();toggleRoutes();};nav.appendChild(pb);
+  pb.onclick=e=>{e.stopPropagation();closeMenus();toggleRoutes();};nav.prepend(pb);
   const fs=document.createElement("button");fs.className="tab icon";fs.type="button";fs.title="Full screen (F)";fs.setAttribute("aria-label","Full screen");
   fs.innerHTML=`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>`;fs.onclick=toggleFull;nav.appendChild(fs);
   syncMenus();
@@ -1696,6 +1702,7 @@ async function plotRoute(){
 }
 function pickAlt(i){if(!route||!route.alts||!route.alts[i])return;route.sel=i;Object.assign(route,{dist:route.alts[i].dist,dur:route.alts[i].dur,geom:route.alts[i].geom,prof:route.alts[i].prof||null,hover:null});renderRoutes();}
 function clearRoute(){route=null;renderRoutes();}
+$("routeBtn").addEventListener("click",e=>{e.preventDefault();e.stopPropagation();closeMenus();openRoutes("routes");});
 $("routePop").addEventListener("pointermove",e=>{const c=e.target.closest(".skc");if(c)skChartHover(c,e);});
 $("routePop").addEventListener("pointerleave",()=>{const c=$("routePop").querySelector(".skc");if(c)skChartLeave(c);});
 $("routePop").addEventListener("click",e=>{const a=e.target.closest("[data-alt]");if(a){pickAlt(+a.dataset.alt);return;}
