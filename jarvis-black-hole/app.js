@@ -570,10 +570,6 @@ vec3 envShade(vec3 ro,vec3 rd,float t,int id,vec3 n,vec3 extra,bool prim){
   float tr;vec4 rc=satRing(ro,rd,tr);if(tr<t)c=c*(1.-rc.a)+rc.rgb;
   return earthAtmos(ro,rd,prim,t,id==2,c);
 }
-vec3 envAll(vec3 ro,vec3 roW,vec3 rd,bool prim,out float th){
-  int id;vec3 n,ex;th=envHit(ro,roW,rd,1e30,prim,id,n,ex);
-  return envShade(ro,rd,th,id,n,ex,prim);
-}
 
 void main(){
   vec2 uv=(gl_FragCoord.xy-.5*R)/min(R.x,R.y);
@@ -583,17 +579,21 @@ void main(){
   vec3 Lv=cross(p,rd);float h2=dot(Lv,Lv),b=max(sqrt(h2),1e-4),along=dot(p,rd);
   bool outside=dot(cam,cam)>RB*RB;
   float tStop=1e30;vec3 col=vec3(0.);
+  // the surface each pixel ends on is shaded once, at the end: one copy of the Earth and sky code keeps the shader small enough
+  // for Windows' DirectX compiler (four inlined copies made it slow enough to trip the GPU watchdog)
+  vec3 sRo=vec3(0.),sRd=rd0,sN=vec3(0.,1.,0.),sEx=vec3(0.);float sT=1e30,sW=0.;int sId=-1;bool sPrim=true;
   if(outside&&(CORE<.5||b>RB||along>0.)){   // with the core out of view (CORE 0) no ray needs the full march
     // never comes near the black holes: find what it hits, then bend it only by the deflection picked up on the way there
     vec3 rdF=bend(p,rd,Mt*(2.-lensF(along/b))/b);
     int id;vec3 n,ex;float th=envHit(vec3(0.),cam,rdF,1e30,true,id,n,ex);
-    if(th<1e29){vec3 rdP=bend(p,rd,Mt*(lensF((along+th)/b)-lensF(along/b))/b);th=envHit(vec3(0.),cam,rdP,1e30,true,id,n,ex);col=envShade(vec3(0.),rdP,th,id,n,ex,true);}
-    else col=envShade(vec3(0.),rdF,th,id,n,ex,true);
+    vec3 rdS=rdF;
+    if(th<1e29){rdS=bend(p,rd,Mt*(lensF((along+th)/b)-lensF(along/b))/b);th=envHit(vec3(0.),cam,rdS,1e30,true,id,n,ex);}
+    sRd=rdS;sT=th;sId=id;sN=n;sEx=ex;sW=1.;
     tStop=th;
   }else{
     float trav=outside?max(-along-sqrt(max(RB*RB-h2,0.)),0.):0.;
     bool done=false;
-    if(trav>0.){int id;vec3 n,ex;float th=envHit(vec3(0.),cam,rd,trav,true,id,n,ex);if(th<trav){col=envShade(vec3(0.),rd,th,id,n,ex,true);tStop=th;done=true;}}
+    if(trav>0.){int id;vec3 n,ex;float th=envHit(vec3(0.),cam,rd,trav,true,id,n,ex);if(th<trav){sRd=rd;sT=th;sId=id;sN=n;sEx=ex;sW=1.;tStop=th;done=true;}}
     if(!done){
       if(trav>0.)rd=bend(p,rd,Mt*(lensF((along+trav)/b)-lensF(along/b))/b);
       p+=rd*trav;
@@ -675,7 +675,8 @@ void main(){
       }
       if(!fell&&!wall&&tr>.01){
         vec3 L2=cross(p,rd);float b2=max(length(L2),1e-3);vec3 rdo=bend(p,rd,Mt*(2.-lensF(dot(p,rd)/b2))/b2);
-        float th;col+=tr*envAll(p-cam,p,rdo,false,th);
+        int id;vec3 n,ex;float th=envHit(p-cam,p,rdo,1e30,false,id,n,ex);
+        sRo=p-cam;sRd=rdo;sT=th;sId=id;sN=n;sEx=ex;sPrim=false;sW=tr;
       }
       if(fell)tStop=max(-dot(cam,rd0),0.);
       // photon rings round each hole
@@ -697,6 +698,7 @@ void main(){
       }
     }
   }
+  if(sW>0.)col+=sW*envShade(sRo,sRd,sT,sId,sN,sEx,sPrim);
   // light that isn't a surface, along the straight primary ray: the jets and the AI's filaments
   if(CORE>0.)col+=jets(cam,rd0,tStop);
   if(NETK*FIL>0.)col+=filaments(cam,rd0,tStop)*NETK;
@@ -1238,7 +1240,7 @@ addEventListener("keydown",e=>{
 addEventListener("keyup",e=>{if(e.code!=="Space")return;e.preventDefault();lookHeld=false;if(performance.now()-spaceAt<250)lookLatched=!lookLatched;setLook(lookOn());});
 document.addEventListener("pointerlockchange",()=>{if(!document.pointerLockElement&&!lookHeld&&lookLatched)lookLatched=false;});
 cv.addEventListener("dblclick",()=>{if(!pickable())toggleFull();});
-cv.addEventListener("webglcontextlost",e=>e.preventDefault());cv.addEventListener("webglcontextrestored",()=>location.reload());
+cv.addEventListener("webglcontextlost",e=>{e.preventDefault();ctxLost=true;$("ro1").textContent="The graphics driver reset";$("ro2").textContent="Reloading the scene… If this keeps happening, choose Display → Smooth or Lite.";});cv.addEventListener("webglcontextrestored",()=>location.reload());
 
 // ---------- search: a real geocoder where the page can reach one, Claude where it can't ----------
 let sampleFn=null,searchCtl=null,results=[],pin=null;
@@ -1984,11 +1986,12 @@ function pollTimers(){
     gl.deleteQuery(q);queries.shift();}
 }
 const f32=a=>new Float32Array(a);
-let started=false,slowT=0,blurNoted=false,lastDraw=0,coreOn=true,coreWas=true,filOn=true;
+let ctxLost=false,started=false,slowT=0,blurNoted=false,lastDraw=0,coreOn=true,coreWas=true,filOn=true;
 const LADDER=["ultra","auto","perf","lite"];
 function frame(nowP){
+  if(ctxLost){requestAnimationFrame(frame);return;}
   if(!started){
-    if(!programsReady()){$("ro1").textContent="Starting the engine";$("ro2").textContent="Compiling the graphics on your GPU…";last=nowP;requestAnimationFrame(frame);return;}
+    if(!programsReady()){$("ro1").textContent="Starting the engine";$("ro2").textContent=`Compiling the graphics on your GPU… ${Math.round(nowP/1000)} s (the first start on Windows can take up to a minute)`;last=nowP;requestAnimationFrame(frame);return;}
     started=true;if(!programsOK()){$("ro1").textContent="This graphics card couldn't build the scene";$("ro2").textContent="Details are in the browser console";return;}
   }
   // parked near the Earth with nothing moving: draw at 30 fps instead of 60 to save power
