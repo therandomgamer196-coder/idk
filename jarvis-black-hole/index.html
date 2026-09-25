@@ -124,6 +124,32 @@
   .rbadge[data-m="walk"] svg{width:40px;height:54px}
   @keyframes pop{from{opacity:0;scale:.4}to{opacity:1;scale:1}}
   body.clean .rbadge{display:none!important}
+
+  /* ---- skate mode: the route by terrain ---- */
+  .sk-coast{--k:#22a85e}.sk-push{--k:#4192d0}.sk-grind{--k:#bb8418}.sk-walk{--k:#d6479a}
+  #skCase{fill:none;stroke:rgba(4,8,7,.85);stroke-width:8;stroke-linecap:round;stroke-linejoin:round}
+  .skr{fill:none;stroke-width:4.5;stroke-linecap:round;stroke-linejoin:round}
+  #sk-coast{stroke:#22a85e}#sk-push{stroke:#4192d0}#sk-grind{stroke:#bb8418}#sk-walk{stroke:#d6479a;stroke-dasharray:2 7;stroke-width:5.5}
+  #skHover{fill:#fff;stroke:#0a100e;stroke-width:2.5}
+  .skm{position:absolute;left:0;top:0;display:flex;align-items:center;gap:6px;padding:3px 9px 3px 3px;border-radius:999px;background:rgba(6,10,9,.9);border:1.5px solid var(--k);
+    color:var(--ink);font:500 11px/1 "IBM Plex Sans",system-ui,sans-serif;white-space:nowrap;box-shadow:0 4px 14px rgba(0,0,0,.55);will-change:transform;animation:pop .35s cubic-bezier(.2,1.4,.4,1)}
+  .skm i{width:16px;height:16px;display:grid;place-items:center;border-radius:50%;background:var(--k);color:#06100c}
+  .skm i svg{width:11px;height:11px}
+  .skm-coast{--k:#22a85e}.skm-walk{--k:#d6479a}.skm-steep{--k:#bb8418}
+  .skl{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:10px;font-size:12px;color:var(--dim)}
+  .skl span{display:inline-flex;align-items:center;gap:6px}.skl b{color:var(--ink);font-weight:500;font-variant-numeric:tabular-nums}
+  .skl i,.sktip i{width:10px;height:10px;border-radius:3px;background:var(--k);display:inline-block}
+  .sk-walk i{background:repeating-linear-gradient(90deg,var(--k) 0 3px,transparent 3px 5px)}
+  .skc{position:relative;margin-top:10px}
+  .skh{display:flex;justify-content:space-between;gap:10px;font:500 9.5px "IBM Plex Mono",monospace;letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
+  .skh span:last-child{letter-spacing:.04em;text-transform:none;color:var(--dim)}
+  .skp{display:block;width:100%;height:auto;margin-top:4px;touch-action:none;cursor:crosshair}
+  .skf{fill:var(--k);opacity:.28}.skline{fill:none;stroke:var(--k);stroke-width:2;stroke-linejoin:round}
+  .skg{stroke:var(--line);stroke-width:1}.skt{fill:var(--faint);font:10px "IBM Plex Mono",monospace}
+  .skx{stroke:var(--ink);stroke-width:1;opacity:.5}.skd{fill:#fff;stroke:#0a100e;stroke-width:2}
+  .sktip{position:absolute;top:-6px;transform:translate(-50%,-100%);padding:5px 9px;border-radius:8px;background:#0b1210;border:1px solid var(--line2);font-size:11.5px;color:var(--dim);white-space:nowrap;pointer-events:none}
+  .sktip b{color:var(--ink);font-weight:500}.sktip span{display:inline-flex;align-items:center;gap:5px}
+  body.clean #skMarks{display:none!important}
   /* ---- shared panel parts ---- */
   .sheet{border:1px solid var(--line2);border-radius:16px;background:var(--glass2);backdrop-filter:blur(20px) saturate(1.15);-webkit-backdrop-filter:blur(20px) saturate(1.15);
     box-shadow:0 1px 0 rgba(255,255,255,.05) inset,0 24px 64px -12px rgba(0,0,0,.7)}
@@ -282,9 +308,10 @@
 
 </head><body>
 <canvas id="c" aria-label="A merging pair of black holes harnessed by an AI, beside a real-time, true-scale model of the solar system with a satellite-imaged Earth"></canvas>
-<svg class="overlay" id="pickSvg" aria-hidden="true"><path id="routeAlt"/><path id="routePath"/><circle id="routeA" r="6" visibility="hidden"/><circle id="routeB" r="7" visibility="hidden"/><path id="pickPath"/><circle id="pickDot" r="4.5"/></svg>
+<svg class="overlay" id="pickSvg" aria-hidden="true"><path id="routeAlt"/><path id="routePath"/><path id="skCase"/><path id="sk-push" class="skr"/><path id="sk-grind" class="skr"/><path id="sk-coast" class="skr"/><path id="sk-walk" class="skr"/><circle id="skHover" r="6" visibility="hidden"/><circle id="routeA" r="6" visibility="hidden"/><circle id="routeB" r="7" visibility="hidden"/><path id="pickPath"/><circle id="pickDot" r="4.5"/></svg>
 <div class="labels" id="labels"></div>
 <div class="rbadge" id="routeBadge" hidden></div>
+<div class="labels" id="skMarks" aria-hidden="true"></div>
 
 <header class="top" id="top">
   <div class="brand">

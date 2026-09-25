@@ -1672,8 +1672,9 @@ function osrm(a,b,srv){
       if(j.code==="Ok"&&j.routes&&j.routes[0])return{alts:j.routes.map(R=>({dist:R.distance,dur:R.duration,geom:R.geometry.coordinates}))};
       if(j.code==="NoRoute")return{none:true};err=new Error(j.code);}catch(e){err=e;}}throw err;})();
   routeCache.set(k,p);p.catch(()=>routeCache.delete(k));return p;}
-async function tripTime(a,b,mode){const M=TMODE[mode];
-  try{const r=await osrm(a,b,M.srv);if(r.none)return{none:true};
+async function tripTime(a,b,mode,light){const M=TMODE[mode];
+  try{if(mode==="skate")return await skateTrip(a,b,light);
+    const r=await osrm(a,b,M.srv);if(r.none)return{none:true};
     const alts=r.alts.map(x=>({dist:x.dist,dur:M.fixed?x.dist/1000/M.kmh*3600:x.dur,geom:x.geom})).sort((x,y)=>x.dur-y.dur);   // fastest first
     return{...alts[0],alts,road:true};}
   catch(e){routeBlocked=true;const d=gcDist(a,b)*1.3,x={dist:d,dur:d/1000/M.kmh*3600,geom:[[a.lon,a.lat],[b.lon,b.lat]]};return{...x,alts:[x],road:false};}}
@@ -1693,8 +1694,10 @@ async function plotRoute(){
   if(!r.none)fitGeom(r.geom);
   for(const m of Object.keys(TMODE))if(m!==mode)tripTime(a,b,m).then(x=>{if(route&&route.tok===tok){route.others[m]=x;renderRoutes();}});
 }
-function pickAlt(i){if(!route||!route.alts||!route.alts[i])return;route.sel=i;Object.assign(route,{dist:route.alts[i].dist,dur:route.alts[i].dur,geom:route.alts[i].geom});renderRoutes();}
+function pickAlt(i){if(!route||!route.alts||!route.alts[i])return;route.sel=i;Object.assign(route,{dist:route.alts[i].dist,dur:route.alts[i].dur,geom:route.alts[i].geom,prof:route.alts[i].prof||null,hover:null});renderRoutes();}
 function clearRoute(){route=null;renderRoutes();}
+$("routePop").addEventListener("pointermove",e=>{const c=e.target.closest(".skc");if(c)skChartHover(c,e);});
+$("routePop").addEventListener("pointerleave",()=>{const c=$("routePop").querySelector(".skc");if(c)skChartLeave(c);});
 $("routePop").addEventListener("click",e=>{const a=e.target.closest("[data-alt]");if(a){pickAlt(+a.dataset.alt);return;}
   const m=e.target.closest("[data-mode]");if(m){RT.mode=m.dataset.mode;plotRoute();return;}if(e.target.closest("[data-clear]"))clearRoute();});
 function addLandmark(name,lat,lon){const id="l"+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
@@ -1710,7 +1713,7 @@ function optList(sel,withNone){const o=[`<option value="me"${sel==="me"?" select
 const lmTimes=new Map();   // origin|id -> {walk,skate,drive}
 function timesFor(o,l){const k=o.id+"|"+l.id+"|"+o.lat+","+o.lon;if(lmTimes.has(k))return lmTimes.get(k);
   const v={};lmTimes.set(k,v);
-  ["walk","skate","drive"].forEach(m=>tripTime(o,l,m).then(x=>{v[m]=x;if(!$("routes").hidden&&RT.tab==="landmarks")renderRoutes();}));return v;}
+  ["walk","skate","drive"].forEach(m=>tripTime(o,l,m,true).then(x=>{v[m]=x;if(!$("routes").hidden&&RT.tab==="landmarks")renderRoutes();}));return v;}
 function renderPop(){
   const el=$("routePop");if(!route||route.state==="same"){el.hidden=true;return;}el.hidden=false;
   if(route.state==="loading"){el.innerHTML=`<div class="rph"><i class="spin"></i><span>Finding ${TMODE[route.mode].label.toLowerCase()} routes to <b>${esc(route.b.name)}</b></span></div>`;return;}
@@ -1720,7 +1723,7 @@ function renderPop(){
   const modes=Object.keys(TMODE).map(m=>[m,m===route.mode?route.alts[0]:route.others[m]]).sort((x,y)=>(x[1]&&!x[1].none?x[1].dur:1e12)-(y[1]&&!y[1].none?y[1].dur:1e12))
     .map(([m,x])=>`<button type="button" class="rpm" data-mode="${m}" aria-pressed="${m===route.mode}">${TMODE[m].label} <b>${x?x.none?"—":fmtDur(x.dur):"…"}</b></button>`).join("");
   el.innerHTML=`<div class="rph"><span>${esc(route.a.name)} <i>→</i> <b>${esc(route.b.name)}</b></span><button type="button" class="rpx" data-clear aria-label="Clear route">×</button></div>
-    <div class="rpas">${alts}</div><div class="rpms">${modes}</div>${route.road?"":`<div class="rpn">Straight-line estimate · real routes need the downloaded copy</div>`}`;
+    <div class="rpas">${alts}</div>${route.mode==="skate"&&route.prof?skBreakdown(route.prof)+skChart(route.prof):route.mode==="skate"&&route.road?`<div class="rpn">Couldn't load hill data, so this uses a flat 7 mph.</div>`:""}<div class="rpms">${modes}</div>${route.road?"":`<div class="rpn">Straight-line estimate · real routes need the downloaded copy</div>`}`;
 }
 function renderRoutes(){
   renderPop();
@@ -1737,7 +1740,7 @@ function renderRoutes(){
       else if(route.state==="none")res=`<div class="rr"><div class="rk">No ${TMODE[route.mode].label.toLowerCase()} route found</div><p class="rn">The routing service found no way between these two places for this mode.</p></div>`;
       else{const oth=Object.keys(TMODE).filter(m=>m!==route.mode).map(m=>{const x=route.others[m];return`<button type="button" class="om" data-mode="${m}"><span>${TMODE[m].label}</span><b>${x?x.none?"No route":fmtDur(x.dur):"…"}</b></button>`;}).join("");
         res=`<div class="rr"><div class="rk">${TMODE[route.mode].label}${route.road?"":" · estimate"}</div><div class="rt"><b>${fmtDur(route.dur)}</b><span>${fmtMi(route.dist)}</span></div>
-          <div class="rw">${esc(route.a.name)} <i>→</i> ${esc(route.b.name)}</div><div class="oms">${oth}</div>
+          <div class="rw">${esc(route.a.name)} <i>→</i> ${esc(route.b.name)}</div>${route.mode==="skate"&&route.prof?skBreakdown(route.prof):""}<div class="oms">${oth}</div>
           <div class="ra"><a class="pb" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&origin=${route.a.lat},${route.a.lon}&destination=${route.b.lat},${route.b.lon}&travelmode=${{walk:"walking",skate:"walking",bike:"bicycling",drive:"driving"}[route.mode]}">Open in Google Maps ↗</a><button type="button" class="pb" data-clear>Clear route</button></div></div>`;}
     }
     body.innerHTML=`<label class="fl" for="rtFrom">From</label><div class="sel"><select id="rtFrom">${optList(RT.from)}</select></div>
@@ -1745,7 +1748,7 @@ function renderRoutes(){
       <label class="fl" for="rtTo">To</label><div class="sel"><select id="rtTo">${optList(RT.to,true)}</select></div>
       <div class="chips" role="group" aria-label="Travel mode">${modes}</div>
       <button type="button" class="pb pri wide" data-plot${RT.to?"":" disabled"}>Plot route</button>${res}${note}
-      <p class="rn">Skating time uses the walking route at 11 km/h (7 mph), a typical cruising speed.</p>`;
+      <p class="rn">Skate mode reads the hills: downhill you coast (10–15 mph), flat you push (7 mph), gentle climbs slow you down, and anything steeper than 5% you walk. It compares walking and bike routes and picks the fastest to skate.</p>`;
   }else{
     const o=ptOf(RT.origin)||ptOf("me");
     const rows=LM.filter(l=>l.id!==o.id).map(l=>{const v=timesFor(o,l),f=m=>v[m]?v[m].none?"—":fmtDur(v[m].dur):"…";
@@ -1774,7 +1777,7 @@ $("lmAdd").addEventListener("submit",async e=>{e.preventDefault();const inp=$("l
   catch(err){msg.textContent=err.message||"The search failed.";}});
 function drawRoute(rt,up,fw){
   const p=$("routePath"),a=$("routeA"),b=$("routeB");
-  if(!route||!route.geom||route.state!=="done"||len(sub(cp,EW))>13*6){$("routeBadge").hidden=true;p.setAttribute("d","");$("routeAlt").setAttribute("d","");a.setAttribute("visibility","hidden");b.setAttribute("visibility","hidden");return;}
+  if(!route||!route.geom||route.state!=="done"||len(sub(cp,EW))>13*6){$("routeBadge").hidden=true;p.setAttribute("d","");$("routeAlt").setAttribute("d","");a.setAttribute("visibility","hidden");b.setAttribute("visibility","hidden");drawSkate(rt,up,fw,null,0);return;}
   const g=route.geom,step=Math.max(1,Math.floor(g.length/1500));let d="",pen=false;
   const vis=(la,lo)=>{const pw=add(EW,qApply(EQ,mul(efDir(la/r2d,lo/r2d),13)));return dot(sub(pw,EW),sub(cp,pw))>0?project(pw,rt,up,fw):null;};
   for(let i=0;i<g.length;i+=step){const q=vis(g[i][1],g[i][0]);if(!q){pen=false;continue;}d+=(pen?"L":"M")+q[0].toFixed(1)+" "+q[1].toFixed(1);pen=true;}
@@ -1785,6 +1788,7 @@ function drawRoute(rt,up,fw){
   let da="";route.alts.forEach((x,i)=>{if(i===route.sel)return;let pen2=false;const st=Math.max(1,Math.floor(x.geom.length/600));
     for(let j=0;j<x.geom.length;j+=st){const q=vis(x.geom[j][1],x.geom[j][0]);if(!q){pen2=false;continue;}da+=(pen2?"L":"M")+q[0].toFixed(1)+" "+q[1].toFixed(1);pen2=true;}});
   $("routeAlt").setAttribute("d",k>.6?da:"");
+  if(drawSkate(rt,up,fw,vis,k))p.setAttribute("d","");   // skate mode draws the route by terrain instead
   // once traced, a badge at the route's midpoint shows how you'll travel
   const bd=$("routeBadge"),mid=g[Math.floor(g.length/2)],qm=k>=1&&mid?vis(mid[1],mid[0]):null;
   if(qm){if(bd.dataset.m!==route.mode){bd.dataset.m=route.mode;bd.innerHTML=`<div>${MODE_ICON[route.mode]}</div>`;bd.title=TMODE[route.mode].label;}bd.hidden=false;bd.style.transform=`translate(${(qm[0]-15).toFixed(1)}px,${(qm[1]-8).toFixed(1)}px)`;}else bd.hidden=true;
@@ -1795,6 +1799,108 @@ function drawLandmarks(rt,up,fw){
   LM.forEach(l=>{let el=lmLabels.get(l.id);if(!el){el=mkLabel(esc(l.name),"lm");lmLabels.set(l.id,el);}
     if(!near){el.hidden=true;return;}const pw=add(EW,qApply(EQ,mul(efDir(l.lat/r2d,l.lon/r2d),13))),q=project(pw,rt,up,fw);
     if(q&&dot(sub(pw,EW),sub(cp,pw))>0){el.hidden=false;el.style.transform=`translate(${(q[0]-5).toFixed(1)}px,${(q[1]-5).toFixed(1)}px)`;}else el.hidden=true;});
+}
+
+// ---------- skate mode: terrain-aware routing ----------
+// Elevation along the route (Open-Meteo, Copernicus 90 m DEM) splits it into stretches you coast, push, grind up, or walk.
+const SKC={coast:{label:"Coast",col:"#22a85e"},push:{label:"Push",col:"#4192d0"},grind:{label:"Grind uphill",col:"#bb8418"},walk:{label:"Walk",col:"#d6479a"}};
+const SKN=["coast","push","grind","walk"];
+const elevCache=new Map();
+async function elevations(pts){
+  const out=new Array(pts.length),jobs=[];
+  for(let i=0;i<pts.length;i+=100){const s=pts.slice(i,i+100),la=s.map(p=>p[0].toFixed(5)).join(","),lo=s.map(p=>p[1].toFixed(5)).join(","),k=la+"|"+lo;
+    jobs.push((async()=>{let v=elevCache.get(k);if(!v){const j=await fetchJSON(`https://api.open-meteo.com/v1/elevation?latitude=${la}&longitude=${lo}`,12000);v=j&&j.elevation;
+      if(!Array.isArray(v)||v.length!==s.length)throw new Error("elevation");elevCache.set(k,v);}v.forEach((e,j)=>out[i+j]=+e);})());}
+  await Promise.all(jobs);return out;}
+function resample(g,maxN){   // evenly spaced points along a GeoJSON line, at least 25 m apart
+  const d=[0];for(let i=1;i<g.length;i++)d.push(d[i-1]+gcDist({lat:g[i-1][1],lon:g[i-1][0]},{lat:g[i][1],lon:g[i][0]}));
+  const L=d[d.length-1],n=Math.max(2,Math.min(maxN,Math.round(L/25))+1),pts=[];let j=0;
+  for(let k=0;k<n;k++){const s=L*k/(n-1);while(j<g.length-2&&d[j+1]<s)j++;const f=clamp((s-d[j])/Math.max(1e-9,d[j+1]-d[j]),0,1);
+    pts.push({s,lat:g[j][1]+(g[j+1][1]-g[j][1])*f,lon:g[j][0]+(g[j+1][0]-g[j][0])*f});}
+  return{pts,L};}
+const skSpeed=(c,gr)=>c==="coast"?clamp(16+(-gr-.01)*400,16,24):c==="push"?11:c==="grind"?clamp(11-(gr-.015)/.035*5,6,11):4.5;   // km/h
+function skateProfile(raw,pts){
+  const n=pts.length,step=(pts[n-1].s-pts[0].s)/Math.max(1,n-1),w=Math.max(1,Math.round(40/Math.max(step,1)));
+  const e=raw.map((_,i)=>{let s=0,c=0;for(let k=Math.max(0,i-w);k<=Math.min(n-1,i+w);k++){s+=raw[k];c++;}return s/c;});   // DEM noise off
+  const gr=[],cl=[];
+  for(let i=0;i<n-1;i++){const a=Math.max(0,i-w),b=Math.min(n-1,i+1+w),g=(e[b]-e[a])/Math.max(1,pts[b].s-pts[a].s);gr.push(g);
+    cl.push(g<=-.01?"coast":g<.015?"push":g<.05?"grind":"walk");}
+  // stretches shorter than 60 m take their neighbour's class (a driveway dip isn't a coast)
+  let runs=[];for(let i=0;i<cl.length;i++){const r=runs[runs.length-1];if(r&&r.c===cl[i])r.i1=i;else runs.push({c:cl[i],i0:i,i1:i});}
+  const rl=r=>pts[r.i1+1].s-pts[r.i0].s;
+  for(let pass=0;pass<3;pass++){runs.forEach((r,k)=>{if(rl(r)<60&&runs.length>1){const nb=runs[k-1]||runs[k+1];for(let i=r.i0;i<=r.i1;i++)cl[i]=nb.c;}});
+    runs=[];for(let i=0;i<cl.length;i++){const r=runs[runs.length-1];if(r&&r.c===cl[i])r.i1=i;else runs.push({c:cl[i],i0:i,i1:i});}}
+  const by={coast:0,push:0,grind:0,walk:0};let time=0,gain=0,loss=0;
+  for(let i=0;i<cl.length;i++){const L=pts[i+1].s-pts[i].s;by[cl[i]]+=L;time+=L/1000/skSpeed(cl[i],gr[i])*3600;const de=e[i+1]-e[i];if(de>0)gain+=de;else loss-=de;}
+  const marks=[];
+  runs.forEach(r=>{const L=rl(r);let mx=0,mn=0,avg=(e[r.i1+1]-e[r.i0])/Math.max(1,L);for(let i=r.i0;i<=r.i1;i++){mx=Math.max(mx,gr[i]);mn=Math.min(mn,gr[i]);}
+    if(r.c==="walk"&&L>=30)marks.push({k:"walk",i:r.i0,L,g:mx,rise:e[r.i1+1]-e[r.i0]});
+    if(r.c==="coast"&&L>=90)marks.push({k:mn<-.08?"steep":"coast",i:r.i0,L,g:avg,g2:mn});});
+  const pick=(k,n)=>marks.filter(m=>m.k===k).sort((a,b)=>b.L-a.L).slice(0,n);
+  const shown=[...pick("walk",8),...pick("steep",4),...pick("coast",6)].sort((a,b)=>a.i-b.i);
+  return{pts,e,gr,cl,runs,by,time,gain,loss,marks:shown,hills:marks.filter(m=>m.k==="walk").length,minE:Math.min(...e),maxE:Math.max(...e),L:pts[n-1].s};
+}
+async function skateTrip(a,b,light){
+  const [f,bk]=await Promise.all([osrm(a,b,"foot").catch(e=>({err:e})),light?null:osrm(a,b,"bike").catch(()=>null)]);
+  if(f&&f.err&&!(bk&&bk.alts))throw f.err;
+  let cands=[];[f,bk].forEach(r=>{if(r&&r.alts)cands.push(...r.alts);});
+  if(!cands.length)return{none:true};
+  cands=cands.filter((c,i)=>!cands.slice(0,i).some(o=>Math.abs(o.dist-c.dist)<o.dist*.015&&gcDist({lat:o.geom[o.geom.length>>1][1],lon:o.geom[o.geom.length>>1][0]},{lat:c.geom[c.geom.length>>1][1],lon:c.geom[c.geom.length>>1][0]})<60));
+  const res=await Promise.all((light?cands.slice(0,1):cands.slice(0,4)).map(async c=>{
+    try{const{pts}=resample(c.geom,300),el=await elevations(pts.map(p=>[p.lat,p.lon])),pr=skateProfile(el,pts);return{dist:c.dist,dur:pr.time,geom:c.geom,prof:pr};}
+    catch(e){return{dist:c.dist,dur:c.dist/1000/11*3600,geom:c.geom,prof:null};}}));
+  res.sort((x,y)=>x.dur-y.dur);
+  return{...res[0],alts:res,road:true};
+}
+const fmtFt=m=>Math.round(m*3.28084).toLocaleString()+" ft";
+const SK_ICON={coast:'<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4l9 8M12 7v5H7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  walk:'<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><ellipse cx="5" cy="5.5" rx="2" ry="3"/><ellipse cx="11" cy="9.5" rx="2" ry="3"/><circle cx="5" cy="10.4" r="1.1"/><circle cx="11" cy="14.2" r="1.1"/></svg>',
+  steep:'<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2 15 14H1z" fill="currentColor"/><path d="M8 6v4M8 12v.4" stroke="#0a100e" stroke-width="1.8" stroke-linecap="round"/></svg>'};
+const mph=g=>Math.round(skSpeed("coast",g)/1.609);
+function skMarkText(m){return m.k==="walk"?`Walk · ${Math.round(m.g*100)}% hill`:m.k==="steep"?`Steep · slow down`:`Coast · up to ${mph(m.g2)} mph`;}
+function skBreakdown(pr){
+  return`<div class="skl">${SKN.filter(c=>pr.by[c]>=30).map(c=>`<span class="sk-${c}"><i></i>${SKC[c].label} <b>${fmtMi(pr.by[c])}</b>${c==="walk"&&pr.hills?` (${pr.hills} ${pr.hills===1?"hill":"hills"})`:""}</span>`).join("")}</div>`;}
+function skChart(pr){   // elevation profile, one scale, coloured by stretch
+  const W=480,H=104,l=46,r=10,t=8,b=20,iw=W-l-r,ih=H-t-b,lo=pr.minE,hi=Math.max(pr.maxE,lo+10),n=pr.pts.length;
+  const X=s=>l+s/pr.L*iw,Y=v=>t+(hi-v)/(hi-lo)*ih;
+  let fills="",lines="";
+  pr.runs.forEach(rn=>{let top="";for(let i=rn.i0;i<=rn.i1+1;i++)top+=(i===rn.i0?"M":"L")+X(pr.pts[i].s).toFixed(1)+" "+Y(pr.e[i]).toFixed(1);
+    fills+=`<path d="${top}L${X(pr.pts[rn.i1+1].s).toFixed(1)} ${t+ih}L${X(pr.pts[rn.i0].s).toFixed(1)} ${t+ih}Z" class="skf sk-${rn.c}"/>`;
+    lines+=`<path d="${top}" class="skline sk-${rn.c}"/>`;});
+  const grid=[hi,lo].map(v=>`<line x1="${l}" x2="${W-r}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}" class="skg"/><text x="${l-6}" y="${(Y(v)+3.5).toFixed(1)}" text-anchor="end" class="skt">${fmtFt(v)}</text>`).join("");
+  return`<div class="skc"><div class="skh"><span>Hills along the way</span><span>${fmtFt(pr.gain)} up · ${fmtFt(pr.loss)} down</span></div>
+    <svg viewBox="0 0 ${W} ${H}" class="skp" role="img" aria-label="Elevation profile from ${fmtFt(pr.e[0])} to ${fmtFt(pr.e[n-1])}, climbing ${fmtFt(pr.gain)} and dropping ${fmtFt(pr.loss)}">
+    ${grid}${fills}${lines}<text x="${l}" y="${H-5}" class="skt">0</text><text x="${W-r}" y="${H-5}" text-anchor="end" class="skt">${fmtMi(pr.L)}</text>
+    <line class="skx" x1="0" x2="0" y1="${t}" y2="${t+ih}" visibility="hidden"/><circle class="skd" r="4" visibility="hidden"/>
+    <rect x="${l}" y="${t}" width="${iw}" height="${ih}" fill="transparent" class="skhit"/></svg><div class="sktip" hidden></div></div>`;}
+function skChartHover(el,e){   // crosshair + tooltip; the matching point lights up on the map
+  const pr=route&&route.prof;if(!pr)return;const svg=el.querySelector(".skp"),rc=svg.getBoundingClientRect(),W=480,l=46,r=10,t=8,ih=104-8-20,iw=W-l-r;
+  const x=(e.clientX-rc.left)/rc.width*W,s=clamp((x-l)/iw,0,1)*pr.L;let i=0;while(i<pr.pts.length-2&&pr.pts[i+1].s<s)i++;
+  const hi=Math.max(pr.maxE,pr.minE+10),Y=v=>t+(hi-v)/(hi-pr.minE)*ih,X=l+pr.pts[i].s/pr.L*iw;
+  const ln=svg.querySelector(".skx"),d=svg.querySelector(".skd"),tip=el.querySelector(".sktip");
+  ln.setAttribute("x1",X);ln.setAttribute("x2",X);ln.removeAttribute("visibility");d.setAttribute("cx",X);d.setAttribute("cy",Y(pr.e[i]));d.removeAttribute("visibility");
+  const c=pr.cl[Math.min(i,pr.cl.length-1)],g=pr.gr[Math.min(i,pr.gr.length-1)];
+  tip.hidden=false;tip.innerHTML=`<span class="sk-${c}"><i></i><b>${SKC[c].label}</b></span> · ${fmtMi(pr.pts[i].s)} in · ${fmtFt(pr.e[i])}`;
+  tip.style.left=clamp(X/W*100,12,88)+"%";route.hover=i;}
+function skChartLeave(el){const svg=el.querySelector(".skp");if(!svg)return;svg.querySelector(".skx").setAttribute("visibility","hidden");svg.querySelector(".skd").setAttribute("visibility","hidden");el.querySelector(".sktip").hidden=true;if(route)route.hover=null;}
+const skMarkEls=[];
+function drawSkate(rt,up,fw,vis,k){
+  const pr=route&&route.state==="done"&&route.prof,svgP={};SKN.forEach(c=>svgP[c]="");let cas="";
+  const layer=$("skMarks");
+  if(!pr||len(sub(cp,EW))>13*6){SKN.forEach(c=>$("sk-"+c).setAttribute("d",""));$("skCase").setAttribute("d","");skMarkEls.forEach(x=>x.hidden=true);$("skHover").setAttribute("visibility","hidden");return false;}
+  const n=pr.pts.length,lim=Math.floor(k*(n-1)),Q=pr.pts.map(p=>vis(p.lat,p.lon));
+  let prev=null;
+  for(let i=0;i<Math.min(lim,n-1);i++){const a=Q[i],b=Q[i+1];if(!a||!b){prev=null;continue;}const c=pr.cl[i];
+    const seg=`M${a[0].toFixed(1)} ${a[1].toFixed(1)}L${b[0].toFixed(1)} ${b[1].toFixed(1)}`;
+    svgP[c]+=(prev===c?`L${b[0].toFixed(1)} ${b[1].toFixed(1)}`:seg);prev=c;cas+=seg;}
+  SKN.forEach(c=>$("sk-"+c).setAttribute("d",svgP[c]));$("skCase").setAttribute("d",cas);
+  // markers where coasting and walking start, once the line has finished tracing
+  pr.marks.forEach((m,j)=>{let el=skMarkEls[j];if(!el){el=document.createElement("div");el.className="skm";layer.appendChild(el);skMarkEls[j]=el;}
+    const key=route.tok+"|"+route.sel+"|"+j;if(el.dataset.key!==key){el.dataset.key=key;el.className="skm skm-"+m.k;el.innerHTML=`<i>${SK_ICON[m.k]}</i><span>${skMarkText(m)}</span>`;}
+    const q=k>=1?Q[m.i]:null;if(q){el.hidden=false;el.style.transform=`translate(${(q[0]-11).toFixed(1)}px,${(q[1]-11).toFixed(1)}px)`;}else el.hidden=true;});
+  for(let j=pr.marks.length;j<skMarkEls.length;j++)skMarkEls[j].hidden=true;
+  const h=$("skHover"),hq=route.hover!=null?Q[route.hover]:null;if(hq){h.setAttribute("cx",hq[0].toFixed(1));h.setAttribute("cy",hq[1].toFixed(1));h.removeAttribute("visibility");}else h.setAttribute("visibility","hidden");
+  return true;
 }
 
 // ---------- labels over the scene ----------
