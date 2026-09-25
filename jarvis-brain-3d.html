@@ -73,6 +73,7 @@
   .tm .sep { font: 400 11px/1 var(--display); color: var(--faint); }
   #clock-hm { font: 300 27px/1 var(--mono); letter-spacing: .06em; color: var(--ink); }
   #clock-s { width: 2ch; font: 400 12px/1 var(--mono); color: var(--seal-hi); text-align: left; }
+  #clock-ap { margin-left: -4px; font: 400 9.5px/1 var(--display); letter-spacing: .16em; color: var(--dim); }
   .secbar { position: relative; width: 100%; height: 1px; margin-top: 11px; background: var(--hair); }
   .secbar b { position: absolute; inset: 0; transform-origin: left; transform: scaleX(0); background: linear-gradient(90deg, rgba(208, 64, 44, .05), var(--seal-hi) 70%, var(--ember)); box-shadow: 0 0 8px rgba(236, 106, 79, .6); }
   #clock-tz { margin-top: 9px; font: 500 9.5px/1 var(--mono); letter-spacing: .22em; color: var(--faint); white-space: nowrap; }
@@ -241,7 +242,7 @@
       <span id="clock-day">&nbsp;</span>
     </div>
     <div id="clock-date">&nbsp;</div>
-    <div class="tm"><span class="sep" aria-hidden="true">·</span><span id="clock-hm">--:--</span><span id="clock-s">--</span><span class="sep" aria-hidden="true">·</span></div>
+    <div class="tm"><span class="sep" aria-hidden="true">·</span><span id="clock-hm">--:--</span><span id="clock-s">--</span><span id="clock-ap"></span><span class="sep" aria-hidden="true">·</span></div>
     <div class="secbar" aria-hidden="true"><b id="clock-bar"></b></div>
     <div id="clock-tz">EPHRATA, PA</div>
   </div>
@@ -337,7 +338,7 @@ $('#q').placeholder = `Search ${nodes.length} neurons`;
 
 // Clock, after the Punch In dashboard, on Kayden's time zone.
 const TZ = 'America/New_York';
-const fmtParts = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+const fmtParts = new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true });
 const fmtZone = new Intl.DateTimeFormat('en-US', { timeZone: TZ, timeZoneName: 'short' });
 const fmtDow = new Intl.DateTimeFormat('en-US', { timeZone: TZ, weekday: 'short' });
 const CN_DOW = { Sun: '日', Mon: '一', Tue: '二', Wed: '三', Thu: '四', Fri: '五', Sat: '六' };
@@ -347,8 +348,9 @@ function tick() {
   const p = Object.fromEntries(fmtParts.formatToParts(d).map(x => [x.type, x.value]));
   $('#clock-day').textContent = d.toLocaleDateString('en-US', { timeZone: TZ, weekday: 'long' }).toUpperCase();
   $('#clock-date').innerHTML = `${d.toLocaleDateString('en-US', { timeZone: TZ, day: 'numeric' })} ${d.toLocaleDateString('en-US', { timeZone: TZ, month: 'long' }).toUpperCase()}, ${d.toLocaleDateString('en-US', { timeZone: TZ, year: 'numeric' })} · <b>星期${CN_DOW[fmtDow.format(d)] || ''}</b>`;
-  $('#clock-hm').textContent = `${p.hour === '24' ? '00' : p.hour}:${p.minute}`;
+  $('#clock-hm').textContent = `${p.hour}:${p.minute}`;
   $('#clock-s').textContent = p.second;
+  $('#clock-ap').textContent = (p.dayPeriod || '').toUpperCase();
   const zone = fmtZone.formatToParts(d).find(x => x.type === 'timeZoneName')?.value || '';
   $('#clock-tz').textContent = `EPHRATA, PA · ${zone}`;
   const s = +p.second;
